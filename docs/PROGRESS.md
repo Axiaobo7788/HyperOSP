@@ -4,21 +4,22 @@ Last updated: 2026-09-27
 
 ## Current checkpoint
 
-HyperOSP v0.0.3 is compiled and statically verified as an observation-only M1
-diagnostic build. It retains the device-verified class-name rewrite and adds
-fail-safe, rate-limited traces for `QsFragmentListener`, the resulting `mQs`
-binding, `QSFragmentLegacy` lifecycle/wiring, and controller expansion calls.
-It is ready for a human-gated diagnostic run; no APK installation, LSPosed
-change, device command, or SystemUI restart was performed while preparing it.
+HyperOSP v0.0.4 is compiled and statically verified as an observation-only M1
+diagnostic build.
+It retains the device-verified class-name rewrite, corrects the OEM
+one-argument fragment-listener matcher, removes frame-adjacent legacy wiring
+logs, and focuses on the reflected `panelVisible` transition and collapse call
+chain. It never suppresses a collapse or writes panel state.
 
-The first v0.0.2 API 101 device run verified module load, hook-target
-resolution, the exact `MiuiQSFragment -> QSFragmentLegacy` replacement, and
-SystemUI survival. The classic notification shade nevertheless could not
-expand, and its observed expansion remained `0.0`. That run had HyperCeiler
-and RestoreSplashScreen concurrently scoped to SystemUI; RestoreSplashScreen
-logged explicit `NullPointerException` and `NoSuchMethodError` failures. The
-next run should temporarily exclude all other SystemUI-scoped modules to create
-a clean baseline.
+The v0.0.3 API 101 device run verified `QSFragmentLegacy#onViewCreated`,
+`mQsImpl -> QSImpl`, every expected standard AOSP wiring call, final controller
+`mQs`, valid expansion bounds, and enabled policy/ambient state. The shade
+opened and drew, then was hidden and made invisible about 100-300 ms later.
+Consequently, incomplete legacy-QS wiring is rejected; the active blocker is
+now more likely Xiaomi's notification-panel visibility/collapse arbitration.
+The APK is ready for a human-gated diagnostic run; no APK installation,
+LSPosed change, device command, or SystemUI restart was performed while
+preparing it.
 
 The working tree began as an unmodified JingMatrix/libxposed-example clone at
 `87e9cb8`. The first implementation pass was completed while the HyperOSP
@@ -32,23 +33,64 @@ history rewrite was used.
 | Milestone | State | Evidence / remaining work |
 | --- | --- | --- |
 | Safe repository bootstrap | Complete | Template history preserved; `origin` is HyperOSP, `upstream` is JingMatrix, work is on `feat/aosp-qs-legacy-poc` |
-| Minimal HyperOSP module | Complete | v0.0.3/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope verified in both APKs |
+| Minimal HyperOSP module | Complete | v0.0.4/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope retained |
 | API 101 migration | Complete | No-argument module entry, `onModuleLoaded`, `Hooker#intercept(Chain)`, protective HookBuilder and copied-argument proceed path implemented |
-| M1 legacy QS hook | Runtime partially verified | Exact package/first-load gates, target resolution, and class rewrite executed; SystemUI survived, but the classic shade remained closed |
-| v0.0.3 QS wiring diagnostics | Locally complete | Listener/mQs, legacy delegate/setters, listening/height/updateExpansion hooks are observation-only, signature-gated, and rate-limited |
-| Local debug build | Complete | Clean debug build passes on JDK 21; APK metadata and DEX references inspected |
-| Lint and release/R8 packaging | Complete | `lintDebug`, minified `assembleRelease`, resource entry rewriting and API 101 Chain/intercept references verified |
+| M1 legacy QS hook | Runtime partially verified | Exact rewrite and full standard legacy-QS lifecycle/wiring succeeded; shade opens/draws but is actively hidden shortly afterward |
+| v0.0.3 QS wiring diagnostics | Runtime complete | Delegate, wiring, final mQs, expansion bounds, and enabled-state evidence captured; missing-wiring hypothesis rejected |
+| v0.0.4 collapse diagnostics | Implementation complete | OEM listener matcher fixed; panel transition stack, animation caller, reflected collapse-method hooks, and arbitration inventory are observation-only |
+| Local debug build | Complete | Clean debug build passes on JDK 21; metadata, scope, entry, version, DEX references, and SHA-256 verified |
+| Lint and release/R8 packaging | Complete | `lintDebug` reports no issues; minified release builds and its rewritten `t0` entry is valid |
 | API 100 compatibility | Rejected by runtime | API 101 manager automatically disabled v0.0.1 before module execution |
 | First API 101 device run | Completed with functional blocker | Rewrite succeeded and SystemUI lived; shade expansion stayed at `0.0` |
-| Clean v0.0.3 diagnostic run | Human-gated | Temporarily exclude other SystemUI modules, then capture one controlled pull-down and complete `HyperOSP:` log sequence |
+| Clean v0.0.4 diagnostic run | Human-gated | Temporarily exclude other SystemUI modules, then capture the true-to-false stack and reflected collapse-call sequence from one pull-down |
 
 ## Validation boundary
 
-Do not interpret v0.0.3 compilation as proof that its diagnostic callbacks
-resolve on the OEM build or that the legacy fragment can expand. The v0.0.2
-runtime facts above are verified, but callback completion, final `mQs`,
-`mQsImpl` readiness, wiring calls, and the source of the `0.0` expansion remain
-open until the next human-gated run.
+Do not interpret v0.0.4 compilation as proof that its reflected visibility
+setter or collapse methods resolve on the OEM build. The complete legacy-QS
+wiring facts above are device-verified. The still-open question is which live
+caller changes `panelVisible` from true to false and whether the suspicious
+Xiaomi control-center arbitration state appears in that path.
+
+## v0.0.4 local build evidence
+
+- Fast source check: `./gradlew :app:compileDebugKotlin` — `BUILD SUCCESSFUL`.
+- Required comprehensive command:
+  `./gradlew clean :app:lintDebug :app:assembleDebug :app:assembleRelease`
+- Result: `BUILD SUCCESSFUL` in 1m 2s (89 actionable tasks; 86 executed,
+  3 up-to-date); lint reports `No issues found.`
+- Package: `io.github.axiaobo7788.hyperosp`
+- Version: `0.0.4` (`versionCode=4`)
+- compileSdk/targetSdk: 36 / 36; JDK toolchain: 21
+- Both APKs contain `minApiVersion=101`, `targetApiVersion=101`,
+  `staticScope=true`, and exactly one scope line: `com.android.systemui`.
+- Debug `java_init.list` names
+  `io.github.axiaobo7788.hyperosp.HyperOSPModule`. R8 rewrites the release entry
+  to `t0`; DEX inspection confirms `t0` is public, extends `XposedModule`, has a
+  public no-argument constructor, and retains `onModuleLoaded` and
+  `onPackageLoaded`.
+- DEX inspection confirms the rewrite hook and all four v0.0.4 diagnostic
+  interceptor classes implement `XposedInterface.Hooker`. Each diagnostic
+  interceptor contains one unchanged `Chain.proceed()` call. Only the original
+  mutually exclusive rewrite path also contains `proceed(Object[])`.
+- Both DEX builds retain `onFragmentViewCreated`, `setPanelVisible`,
+  `startPanelVisibleAnimation`, `collapseShade`, `animateCollapseShade`,
+  `instantCollapseShade`, `collapsePanels`, and the transition log marker.
+- The removed high-frequency diagnostic targets `updateExpansion`,
+  `setExpansionHeight`, and `setQsExpansion` are absent from both APK DEX string
+  inventories.
+- Neither APK packages the libxposed compile-only implementation, an API 100
+  stub, a legacy annotation callback, or a native library.
+- Debug APK:
+  `app/build/outputs/apk/debug/app-debug.apk`
+- Debug SHA-256:
+  `55e3abb3562efb2debe2c47756bcfc2f636ebf326465f6ab8be016103d4f7f17`
+- Release APK:
+  `app/build/outputs/apk/release/app-release.apk`
+- Release SHA-256:
+  `c6cfbc05874d30e552b0313059e00db495788a713f758ecc530a91b9ba1fdcda`
+- Release remains debug-signed for packaging/R8 verification and is not a
+  production release artifact.
 
 ## v0.0.3 final local build evidence
 

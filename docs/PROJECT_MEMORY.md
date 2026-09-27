@@ -55,6 +55,56 @@ tool failures belong in `PROGRESS.md` instead.
   not assigned to HyperOSP, but they make the run a contaminated baseline; the
   next diagnostic run should temporarily exclude other SystemUI modules.
 
+## Verified runtime: second API 101 M1 run
+
+- The v0.0.3 run again executed the exact
+  `MiuiQSFragment -> QSFragmentLegacy` rewrite.
+- `QSFragmentLegacy#onViewCreated` executed and initialized `mQsImpl` from
+  `null` to `com.android.systemui.qs.QSImpl`.
+- The runtime invoked `setPanelView`, `setCollapseExpandAction`,
+  `setHeaderClickable`, `setOverscrolling`, `setInSplitShade`,
+  `setListening(true)`, and `setQsExpansion`.
+- `QuickSettingsControllerImpl.mQs` ultimately referenced the actual
+  `QSFragmentLegacy` instance.
+- `mMinExpansionHeight` and `mMaxExpansionHeight` had valid values (one
+  observed pair was `372 / 2267`), and both `mExpansionEnabledPolicy` and
+  `mExpansionEnabledAmbient` became `true` during the run.
+- HyperOS exposes the OEM callback as
+  `QuickSettingsControllerImpl$QsFragmentListener#onFragmentViewCreated(android.app.Fragment):void`,
+  not the AOSP-style `(String, Fragment)` form assumed by v0.0.3's matcher.
+- During each attempted pull-down the observed sequence was `panel_open`,
+  `notification_panel_revealed`, `NotificationShade reportDrawFinished`, then
+  about 100-300 ms later `notification_panel_hidden` and
+  `NotificationShade View.INVISIBLE`. The shade therefore opens and draws,
+  then is actively hidden.
+
+## Rejected hypothesis and current hypothesis
+
+- **Rejected by verified runtime:** `QSFragmentLegacy` failed to complete the
+  standard AOSP lifecycle, delegate initialization, controller binding, or QS
+  wiring.
+- **Current hypothesis:** the QS backend is successfully wired; the blocker is
+  more likely in Xiaomi's NotificationPanel visibility/collapse arbitration
+  than in the normal `QuickSettingsControllerImpl` to `QSFragmentLegacy`
+  wiring.
+
+## Verified APK symbols and unresolved ownership
+
+- The inspected MiuiSystemUI DEX contains `panelVisible`, `setPanelVisible`,
+  `startPanelVisibleAnimation`, `collapsePanels`, `collapseShade`,
+  `animateCollapseShade`, and `instantCollapseShade`, together with the strings
+  `controlCenterInteractive, not excepted notification panel expand.` and
+  `not excepted notification panel expand.`
+- The original uploaded APK is not present in the current local workspace, and
+  public-source search does not expose Xiaomi's proprietary implementation.
+  The precise method owning those two strings and its branch predicate are
+  therefore **not yet verified**; do not infer ownership from the strings
+  alone.
+- v0.0.4 resolves this boundary without guessed signatures: it enumerates
+  live methods from the SystemUI ClassLoader, installs observation hooks only
+  for reflected concrete methods, and captures the caller stack only on an
+  observed `panelVisible` `true -> false` transition.
+
 ## Verified source: QS hand-off path
 
 - Current AOSP `QuickSettingsControllerImpl.QsFragmentListener` assigns the
@@ -69,20 +119,20 @@ tool failures belong in `PROGRESS.md` instead.
 
 ## Active hypotheses
 
-- The legacy fragment may reach `QsFragmentListener` but miss or mistime one of
-  the expected wiring calls, possibly while its internal delegate is null.
-- Alternatively, HyperOS may gate panel/expansion behavior on a Xiaomi-specific
-  type such as `MiuiQS` or `MiuiQSFragment`, or the upstream gesture/expansion
-  path may never deliver a positive height to the AOSP controller.
-- Both statements remain hypotheses until the v0.0.3 diagnostic logs establish
-  the callback, binding, lifecycle, wiring, and expansion sequence.
+- A Xiaomi-specific arbitration path may reject notification-panel expansion
+  while the control center is considered interactive, while
+  `useControlCenter` is in a conflicting state, or when the active QS object is
+  not a Xiaomi `MiuiQS` / `MiuiQSFragment` type.
+- A standard shade collapse entry point may be called shortly after the first
+  successful draw for another reason. v0.0.4 observes the actual caller and
+  reflected state but does not block that call.
 
 ## Repository and toolchain facts
 
 - The local repository was cloned from JingMatrix/libxposed-example at commit
   `87e9cb8` and retains that history as provenance.
 - The inherited template selected compileSdk/targetSdk 36, JDK 21, and Kotlin.
-- HyperOSP v0.0.3 continues to compile against the formal Maven Central dependency
+- HyperOSP v0.0.4 continues to compile against the formal Maven Central dependency
   `io.github.libxposed:api:101.0.0` as `compileOnly`; the API is supplied by the
   framework at runtime and is not packaged in the APK.
 - API 101 entry classes have a no-argument `XposedModule()` constructor. The

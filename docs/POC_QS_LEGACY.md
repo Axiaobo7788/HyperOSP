@@ -125,6 +125,70 @@ only forwards several setters when that delegate exists. Xiaomi-specific
 method bodies and any `instanceof MiuiQS` branch remain unverified until the
 device logs supply evidence.
 
+## Verified runtime: v0.0.3 diagnostics
+
+The second API 101 device run established that the class rewrite is followed
+by a complete standard legacy-QS initialization path:
+
+- `QSFragmentLegacy#onViewCreated` ran;
+- `mQsImpl` changed from `null` to `QSImpl`;
+- every observed panel/collapse/header/overscroll/split/listening/expansion
+  wiring method ran;
+- `QuickSettingsControllerImpl.mQs` held `QSFragmentLegacy`;
+- valid minimum and maximum expansion heights were established; and
+- both observed expansion-enable policy fields became `true`.
+
+This rejects the v0.0.3 working hypothesis that the legacy fragment failed to
+complete normal AOSP wiring. It also revealed an OEM signature difference:
+
+```text
+QuickSettingsControllerImpl$QsFragmentListener
+    onFragmentViewCreated(android.app.Fragment): void
+```
+
+The panel instead opens and draws, then becomes hidden/invisible about
+100-300 ms later. The current diagnostic boundary is therefore the Xiaomi
+notification-panel visibility/collapse arbitration path.
+
+## v0.0.4 observation-only collapse diagnostics
+
+v0.0.4 keeps the sole behavioral fragment-name rewrite unchanged and makes no
+QS wiring modification. Its diagnostics are deliberately low-volume:
+
+1. accept exactly one compatible OEM one-argument or AOSP two-argument
+   `onFragmentViewCreated` callback and observe final `mQs` identity;
+2. resolve `NotificationPanelExpandController` through SystemUI's ClassLoader,
+   require an exact `void setPanelVisible(boolean)` method plus an accessible
+   boolean `panelVisible`/`mPanelVisible` field, and otherwise no-op;
+3. after the original setter returns, emit one rate-limited event only when
+   the reflected field actually changed from `true` to `false`; only that event
+   includes a compact Java caller stack;
+4. if reflection finds one compatible `startPanelVisibleAnimation` method with
+   exactly one boolean direction input, log its show/hide direction and a
+   short caller summary;
+5. search a bounded set of SystemUI/AOSP owner classes for concrete reflected
+   methods named `collapseShade`, `animateCollapseShade`,
+   `instantCollapseShade`, or `collapsePanels`; print each full runtime
+   signature before installing a read-only interceptor;
+6. inventory panel-controller fields/methods whose names or types mention
+   `controlCenterInteractive`, `useControlCenter`, panel interactivity,
+   `MiuiQS`, or panel visibility; and
+7. remove the v0.0.3 frame-adjacent `updateExpansion`, `setExpansionHeight`,
+   and `setQsExpansion` sampling hooks.
+
+Every diagnostic interceptor calls the original exactly once with the original
+receiver and arguments, returns its unmodified result, and rethrows an original
+SystemUI exception unchanged. Missing fields/classes, ambiguous signatures,
+reflection failures, and hook-install failures are logged no-ops.
+
+The inspected APK contains the suspicious strings
+`controlCenterInteractive, not excepted notification panel expand.` and
+`not excepted notification panel expand.`, but the APK itself is not currently
+available in the local workspace and public sources do not contain Xiaomi's
+body. Their precise owning method and predicate path remain unverified. v0.0.4
+is intended to identify that live path from the `true -> false` caller stack
+without guessing a DEX signature or changing behavior.
+
 ## Required diagnostics
 
 The module must emit `HyperOSP:`-prefixed diagnostics for:
@@ -145,13 +209,17 @@ The module must emit `HyperOSP:`-prefixed diagnostics for:
   logic could run; the API 100 route is rejected.
 - API 101 hook installation, replacement execution, and SystemUI survival are
   device-verified for v0.0.2; usable QS rendering and expansion are not.
-- v0.0.3 debug compilation passes locally. Its callback, binding, wiring, and
-  expansion diagnostics still require the next human-gated device run.
+- v0.0.3 callback, binding, delegate, wiring, expansion bounds, and policy
+  state are device-verified. v0.0.4 collapse-source diagnostics still require
+  the next human-gated device run.
+- v0.0.4 clean debug, lint, and release/R8 builds pass locally; APK metadata,
+  SystemUI-only scope, API 101 entry points, and diagnostic Hooker references
+  were statically inspected.
 
 No installation, LSPosed activation, scope change, SystemUI restart, or device
 command was performed during local implementation.
 
-## v0.0.3 diagnostic validation (human-gated)
+## v0.0.4 diagnostic validation (human-gated)
 
 1. Before enabling HyperOSP, confirm that LSPosed Manager is reachable and
    that the framework's normal safe-mode/rescue route is available.
@@ -167,10 +235,9 @@ command was performed during local implementation.
    module load, the SystemUI process/package, both fragments found, hook target
    found, replacement hook installed, and diagnostic-hook install outcomes.
 7. Make one controlled pull-down attempt in `use_control_panel=0`, then stop and
-   preserve the complete `HyperOSP:` sequence. The key facts are callback entry
-   and completion, actual fragment class, post-callback `mQs`, legacy delegate
-   readiness, each wiring setter, controller `setExpansionHeight`,
-   `updateExpansion`, and legacy `setQsExpansion`.
+   preserve the complete `HyperOSP:` sequence. The key evidence is the
+   reflected collapse-method inventory, `startPanelVisibleAnimation` caller,
+   and the compact stack attached to `panelVisible true -> false`.
 8. Do not broaden scope, enable Compose QS, or add a compensating behavior in
    this run. Treat a missing diagnostic target as evidence of OEM drift, not as
    permission to guess a replacement.

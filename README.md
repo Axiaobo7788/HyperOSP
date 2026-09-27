@@ -3,17 +3,24 @@
 HyperOSP is an experimental LSPosed module for narrowly scoped, fail-safe
 HyperOS SystemUI compatibility experiments.
 
-**Current status:** the first v0.0.2 API 101 device run verified that the module
-loads, resolves its hook, and performs the exact
-`MiuiQSFragment -> QSFragmentLegacy` replacement without crashing SystemUI.
-The classic notification shade nevertheless remained closed, with expansion
-stuck at `0.0`. v0.0.3 retains that replacement unchanged and adds read-only,
-rate-limited diagnostics for the fragment callback, the controller's `mQs`
-binding, legacy-fragment wiring, and expansion propagation. v0.0.3 is a local
-build awaiting a human-gated device run; debug, lint, and release/R8 validation
-all pass locally.
+**Current status:** the v0.0.3 API 101 device run proved that the exact
+`MiuiQSFragment -> QSFragmentLegacy` replacement, `QSFragmentLegacy`
+lifecycle, `QSImpl` delegate creation, normal AOSP wiring, controller `mQs`
+binding, expansion bounds, and expansion-enabled policy state all complete.
+The notification shade opens and draws, then becomes hidden and invisible
+about 100-300 ms later. The former "legacy QS was not wired" hypothesis is
+therefore rejected.
 
-The v0.0.3 diagnostic milestone is a minimal proof of concept for Xiaomi 15 Pro
+v0.0.4 retains the fragment rewrite unchanged and narrows diagnostics to the
+Xiaomi notification-panel visibility/collapse arbitration path. It observes
+the reflected `panelVisible` setter, emits a compact stack only for a real
+`true -> false` transition, records `startPanelVisibleAnimation` direction and
+caller when compatible, and observes only collapse methods whose runtime class
+and full signature were first confirmed by reflection. It does not suppress a
+collapse, change a return value, or write panel state. Clean debug, lint, and
+release/R8 builds pass locally; the next step is a human-gated device log run.
+
+The v0.0.4 diagnostic milestone is a minimal proof of concept for Xiaomi 15 Pro
 (`haotian`) on HyperOS 3 / Android 16. It attempts one transformation only:
 when SystemUI asks its fragment injection manager to instantiate the exact
 class name `com.android.systemui.qs.MiuiQSFragment`, substitute
@@ -47,15 +54,18 @@ MiuiQSFragment class name is requested; every other call uses
 callback arguments, and hook errors all produce a `HyperOSP:` diagnostic and a
 no-op.
 
-The v0.0.3 diagnostic hooks do not replace results, arguments, or receivers.
-They observe `QsFragmentListener#onFragmentViewCreated`, the resulting `mQs`
-identity, `QSFragmentLegacy` lifecycle/wiring calls, and
-`QuickSettingsControllerImpl` listening/expansion calls. Frequent expansion
-logs are bounded and sampled. Every original method is invoked exactly once;
-an original SystemUI exception is rethrown unchanged.
+The v0.0.4 diagnostic hooks do not replace results, arguments, or receivers.
+They accept the verified HyperOS one-argument
+`QsFragmentListener#onFragmentViewCreated(Fragment)` signature (while retaining
+the compatible AOSP two-argument form), observe the resulting `mQs` identity,
+and then focus on `NotificationPanelExpandController#setPanelVisible`,
+`startPanelVisibleAnimation`, and reflected collapse-call owners. The old
+frame-adjacent `updateExpansion` and `setQsExpansion` traces are removed.
+Every original method is invoked exactly once; an original SystemUI exception
+is rethrown unchanged.
 
-A successful local build does not prove that the diagnostic callbacks occur or
-that the legacy fragment can expand on Xiaomi's runtime. Installation, LSPosed
+A successful local build does not identify the caller that closes the shade;
+that evidence requires the next human-gated runtime log. Installation, LSPosed
 activation, scope changes, SystemUI restart, and all other device operations
 remain human-gated.
 

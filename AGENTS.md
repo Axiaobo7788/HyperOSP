@@ -5,7 +5,7 @@ These instructions apply to the entire repository.
 ## Project boundary
 
 - HyperOSP is an LSPosed module written in Kotlin with the modern libxposed API.
-- The v0.0.3/M1 diagnostic scope is only `com.android.systemui`.
+- The v0.0.4/M1 diagnostic scope is only `com.android.systemui`.
 - Do not add `miui.systemui.plugin`, a settings UI, Magisk, KernelSU, or other
   companion components during M1.
 - Do not install the APK, change LSPosed state or scope, run device-side
@@ -44,13 +44,18 @@ These instructions apply to the entire repository.
   file says otherwise.
 - Preserve the Apache-2.0 provenance and license text for material inherited
   from JingMatrix/libxposed-example; keep `THIRD_PARTY_NOTICES.md` accurate.
-- Do not report local compilation as successful device validation. The first
-  API 101 run verified the class rewrite and SystemUI survival, but the classic
-  shade remained closed with expansion at `0.0`; the v0.0.3 diagnostic run is
-  the next human-gated checkpoint.
+- Do not report local compilation as successful device validation. The v0.0.3
+  API 101 run verified the class rewrite, legacy lifecycle/delegate, standard
+  wiring, final `mQs`, expansion bounds, and enabled policy state. It also
+  proved that the shade opens and draws before an active hide about 100-300 ms
+  later. The next unknown is the Xiaomi visibility/collapse caller.
 - Diagnostic interceptors must be observation-only: do not alter arguments,
   receivers, return values, or original exceptions. Rate-limit frame-adjacent
   logging and invoke each original method exactly once.
+- For v0.0.4, do not restore the noisy `updateExpansion`/`setQsExpansion`
+  traces and do not compensate for, suppress, or override a collapse. A
+  collapse method may be hooked only after its live declaring class and full
+  signature have been enumerated through reflection.
 - For the next human-run diagnostic baseline, recommend temporarily excluding
   HyperCeiler, RestoreSplashScreen, and every other SystemUI-scoped module.
   RestoreSplashScreen produced unrelated `NullPointerException` and
