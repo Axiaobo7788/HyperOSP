@@ -15,7 +15,9 @@ modern libxposed metadata layout.
 Files subsequently authored specifically for HyperOSP are licensed under
 `GPL-3.0-only` unless stated otherwise. The Apache-2.0 terms continue to apply
 to material retained or adapted from the upstream example; the Git history is
-kept to make that provenance auditable.
+kept to make that provenance auditable. Apache-2.0 material may be combined in
+this GPLv3 project, but its original attribution and license notices remain in
+force.
 
 ## libxposed API 100 compile-time stub
 
@@ -38,3 +40,7 @@ The committed stub JAR SHA-256 is
 HyperOSP compiles against the modern libxposed API and uses the Android Gradle
 Plugin and Kotlin Gradle plugin. Those dependencies are not redistributed as
 HyperOSP source and remain under their respective upstream licenses.
+
+## Research references
+
+HyperCeiler and HyperStar are research references for HyperOS hooking and compatibility patterns. Do not copy code without checking and preserving the source project's license and notices.
