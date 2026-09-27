@@ -4,16 +4,21 @@ Last updated: 2026-09-27
 
 ## Current checkpoint
 
-HyperOSP v0.0.2 has completed the API 100 to API 101 migration and all required
-local validation. It is ready for the first human-gated API 101 SystemUI
-LSPosed test.
+HyperOSP v0.0.3 is compiled and statically verified as an observation-only M1
+diagnostic build. It retains the device-verified class-name rewrite and adds
+fail-safe, rate-limited traces for `QsFragmentListener`, the resulting `mQs`
+binding, `QSFragmentLegacy` lifecycle/wiring, and controller expansion calls.
+It is ready for a human-gated diagnostic run; no APK installation, LSPosed
+change, device command, or SystemUI restart was performed while preparing it.
 
-The prior v0.0.1 device attempt produced one Verified runtime result: the
-current Xposed/libxposed API 101 manager rejected and automatically disabled the
-API 100 module before HyperOSP code could execute. That result rejects the API
-100 route but does not validate or invalidate the M1 Hook point. No v0.0.2 APK
-installation, module enablement, scope change, SystemUI restart, or other
-device operation was performed during this migration.
+The first v0.0.2 API 101 device run verified module load, hook-target
+resolution, the exact `MiuiQSFragment -> QSFragmentLegacy` replacement, and
+SystemUI survival. The classic notification shade nevertheless could not
+expand, and its observed expansion remained `0.0`. That run had HyperCeiler
+and RestoreSplashScreen concurrently scoped to SystemUI; RestoreSplashScreen
+logged explicit `NullPointerException` and `NoSuchMethodError` failures. The
+next run should temporarily exclude all other SystemUI-scoped modules to create
+a clean baseline.
 
 The working tree began as an unmodified JingMatrix/libxposed-example clone at
 `87e9cb8`. The first implementation pass was completed while the HyperOSP
@@ -27,22 +32,60 @@ history rewrite was used.
 | Milestone | State | Evidence / remaining work |
 | --- | --- | --- |
 | Safe repository bootstrap | Complete | Template history preserved; `origin` is HyperOSP, `upstream` is JingMatrix, work is on `feat/aosp-qs-legacy-poc` |
-| Minimal HyperOSP module | Complete | v0.0.2/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope verified in both APKs |
+| Minimal HyperOSP module | Complete | v0.0.3/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope verified in both APKs |
 | API 101 migration | Complete | No-argument module entry, `onModuleLoaded`, `Hooker#intercept(Chain)`, protective HookBuilder and copied-argument proceed path implemented |
-| M1 legacy QS hook | Locally complete | Exact package/first-load gates, class probes, non-ambiguous signature validation, reflected String index and exact guarded replacement preserved |
+| M1 legacy QS hook | Runtime partially verified | Exact package/first-load gates, target resolution, and class rewrite executed; SystemUI survived, but the classic shade remained closed |
+| v0.0.3 QS wiring diagnostics | Locally complete | Listener/mQs, legacy delegate/setters, listening/height/updateExpansion hooks are observation-only, signature-gated, and rate-limited |
 | Local debug build | Complete | Clean debug build passes on JDK 21; APK metadata and DEX references inspected |
 | Lint and release/R8 packaging | Complete | `lintDebug`, minified `assembleRelease`, resource entry rewriting and API 101 Chain/intercept references verified |
 | API 100 compatibility | Rejected by runtime | API 101 manager automatically disabled v0.0.1 before module execution |
-| Physical-device API 101 SystemUI validation | Human-gated | v0.0.2 has not been installed, enabled, scoped, or executed on the device |
+| First API 101 device run | Completed with functional blocker | Rewrite succeeded and SystemUI lived; shade expansion stayed at `0.0` |
+| Clean v0.0.3 diagnostic run | Human-gated | Temporarily exclude other SystemUI modules, then capture one controlled pull-down and complete `HyperOSP:` log sequence |
 
 ## Validation boundary
 
-Do not interpret a local APK build as proof that SystemUI starts, that the
-legacy fragment renders correctly, or that the device recovery path works.
-Those claims require the explicit human-gated device procedure documented at
-the M1 handoff.
+Do not interpret v0.0.3 compilation as proof that its diagnostic callbacks
+resolve on the OEM build or that the legacy fragment can expand. The v0.0.2
+runtime facts above are verified, but callback completion, final `mQs`,
+`mQsImpl` readiness, wiring calls, and the source of the `0.0` expansion remain
+open until the next human-gated run.
 
-## v0.0.2 final local build evidence
+## v0.0.3 final local build evidence
+
+- Required comprehensive command:
+  `./gradlew clean :app:lintDebug :app:assembleDebug :app:assembleRelease`
+- Result: `BUILD SUCCESSFUL` in 53s (89 actionable tasks; 86 executed,
+  3 up-to-date); lint reports `No issues found.`
+- Package: `io.github.axiaobo7788.hyperosp`
+- Version: `0.0.3` (`versionCode=3`)
+- compileSdk/targetSdk: 36 / 36; JDK toolchain: 21
+- Both APKs contain `minApiVersion=101`, `targetApiVersion=101`,
+  `staticScope=true`, and exactly one scope line: `com.android.systemui`.
+- Debug `java_init.list` names
+  `io.github.axiaobo7788.hyperosp.HyperOSPModule`. R8 rewrites the release entry
+  to `n0`; DEX inspection confirms `n0` exists, extends `XposedModule`, has a
+  public no-argument constructor, and retains the lifecycle callbacks.
+- DEX inspection confirms the rewrite and all three diagnostic interceptor
+  types implement `XposedInterface.Hooker`. Each diagnostic interceptor has one
+  unchanged `Chain.proceed()` call; only the original rewrite interceptor also
+  contains its mutually exclusive modified-argument `proceed(Object[])` path.
+- Release DEX retains the diagnostic targets and log strings, including
+  `onFragmentViewCreated`, `setExpansionHeight`, `setQsExpansion`, `mQsImpl`,
+  and `mQsSameFragment`.
+- Neither APK packages the libxposed compile-only implementation, an API 100
+  stub, a legacy annotation callback, or a native library.
+- Debug APK:
+  `app/build/outputs/apk/debug/app-debug.apk`
+- Debug SHA-256:
+  `1da8cf6bc98bee6a7136676ea57389bdee229573b510768060fd1bec39e36229`
+- Release APK:
+  `app/build/outputs/apk/release/app-release.apk`
+- Release SHA-256:
+  `d94e2ddee50304cdb80821adab84adf858575913aaffcc3c70e73f6766b9ba73`
+- Release remains debug-signed for packaging/R8 verification and is not a
+  production release artifact.
+
+## v0.0.2 historical local build evidence
 
 - Bootstrap command: `./gradlew :app:assembleDebug` — passed against the formal
   API 101 dependency.

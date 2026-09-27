@@ -84,6 +84,13 @@ class HyperOSPModule : XposedModule() {
             )
         } catch (throwable: Throwable) {
             safeLog("HyperOSP: caught exception while installing method hook", throwable)
+            return
+        }
+
+        try {
+            LegacyQsDiagnostics(this).install(classLoader)
+        } catch (throwable: Throwable) {
+            safeLog("HyperOSP: caught exception while installing diagnostics", throwable)
         }
     }
 
@@ -150,7 +157,23 @@ class HyperOSPModule : XposedModule() {
             parameters.count { it == Bundle::class.java } == 1
     }
 
-    private fun safeLog(message: String, throwable: Throwable? = null) {
+    @SuppressLint("NewApi")
+    internal fun installDiagnosticHook(
+        method: Method,
+        hooker: XposedInterface.Hooker,
+        label: String,
+    ): Boolean = try {
+        hook(method)
+            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+            .intercept(hooker)
+        safeLog("HyperOSP: diagnostic hook installed: $label")
+        true
+    } catch (throwable: Throwable) {
+        safeLog("HyperOSP: caught exception while installing diagnostic hook: $label", throwable)
+        false
+    }
+
+    internal fun safeLog(message: String, throwable: Throwable? = null) {
         try {
             if (throwable == null) {
                 log(Log.INFO, LOG_TAG, message)

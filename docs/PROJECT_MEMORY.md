@@ -20,8 +20,8 @@ tool failures belong in `PROGRESS.md` instead.
 - Android 16 QPR2 AOSP source retains the candidate private, non-static method
   `FragmentHostManager.ExtensionFragmentManager#instantiateWithInjections`
   with `(Context, String, Bundle)` parameters and an `android.app.Fragment`
-  return type. Xiaomi's runtime implementation still requires device-side
-  reflection confirmation.
+  return type. The v0.0.2 device run subsequently confirmed the compatible
+  Xiaomi runtime target and successful interception.
 
 ## Verified runtime framework compatibility
 
@@ -33,12 +33,56 @@ tool failures belong in `PROGRESS.md` instead.
   not validate the hook point, class replacement, QS rendering, or SystemUI
   stability.
 
+## Verified runtime: first API 101 M1 run
+
+- HyperOSP API 101 loaded successfully in `com.android.systemui`.
+- `MiuiQSFragment`, `QSFragmentLegacy`, and the compatible
+  `ExtensionFragmentManager#instantiateWithInjections` target resolved.
+- The exact `MiuiQSFragment -> QSFragmentLegacy` class-name rewrite executed.
+- SystemUI remained alive; no `ClassCastException`, `InflateException`, fatal
+  exception, or crash-loop attributable to this run was observed.
+- With `settings system use_control_panel = 0`, the classic notification shade
+  could not expand. During the attempted pull-down,
+  `NotificationPanelExpandController` reported the panel invisible and its
+  expansion height remained `0.0`; `NotificationHeaderExpandController`
+  likewise remained at progress `0.0`.
+- The run therefore proves fragment-request rewriting and process survival,
+  but it does not prove that `QSFragmentLegacy` was completely bound into the
+  HyperOS notification-shade expansion path.
+- HyperCeiler and RestoreSplashScreen were also scoped to
+  `com.android.systemui` during this run. RestoreSplashScreen emitted explicit
+  `NullPointerException` and `NoSuchMethodError` failures. Those failures are
+  not assigned to HyperOSP, but they make the run a contaminated baseline; the
+  next diagnostic run should temporarily exclude other SystemUI modules.
+
+## Verified source: QS hand-off path
+
+- Current AOSP `QuickSettingsControllerImpl.QsFragmentListener` assigns the
+  callback fragment to `mQs`, performs panel/collapse/header/overscroll/split
+  shade wiring, attaches related listeners, and calls `updateExpansion()`.
+- Current AOSP `QSFragmentLegacy` stores a nullable `mQsImpl`; its view-created
+  lifecycle initializes that delegate, while multiple QS setter methods only
+  forward when the delegate is non-null.
+- These AOSP facts justify observing callback completion, `mQs` identity,
+  `mQsImpl` readiness, and expansion calls. They do not prove that Xiaomi's
+  fork has identical bodies.
+
+## Active hypotheses
+
+- The legacy fragment may reach `QsFragmentListener` but miss or mistime one of
+  the expected wiring calls, possibly while its internal delegate is null.
+- Alternatively, HyperOS may gate panel/expansion behavior on a Xiaomi-specific
+  type such as `MiuiQS` or `MiuiQSFragment`, or the upstream gesture/expansion
+  path may never deliver a positive height to the AOSP controller.
+- Both statements remain hypotheses until the v0.0.3 diagnostic logs establish
+  the callback, binding, lifecycle, wiring, and expansion sequence.
+
 ## Repository and toolchain facts
 
 - The local repository was cloned from JingMatrix/libxposed-example at commit
   `87e9cb8` and retains that history as provenance.
 - The inherited template selected compileSdk/targetSdk 36, JDK 21, and Kotlin.
-- HyperOSP v0.0.2 compiles against the formal Maven Central dependency
+- HyperOSP v0.0.3 continues to compile against the formal Maven Central dependency
   `io.github.libxposed:api:101.0.0` as `compileOnly`; the API is supplied by the
   framework at runtime and is not packaged in the APK.
 - API 101 entry classes have a no-argument `XposedModule()` constructor. The

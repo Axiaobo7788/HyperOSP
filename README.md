@@ -3,13 +3,17 @@
 HyperOSP is an experimental LSPosed module for narrowly scoped, fail-safe
 HyperOS SystemUI compatibility experiments.
 
-**Current status:** v0.0.2 migrates M1 to the formal libxposed API 101 artifact
-after the API 101 framework was verified to disable the old API 100 build.
-Source, lint, debug packaging, and release/R8 checks pass locally. The API 101
-APK is ready for the first human-gated SystemUI validation; v0.0.2 has not been
-installed, enabled, or run on a phone.
+**Current status:** the first v0.0.2 API 101 device run verified that the module
+loads, resolves its hook, and performs the exact
+`MiuiQSFragment -> QSFragmentLegacy` replacement without crashing SystemUI.
+The classic notification shade nevertheless remained closed, with expansion
+stuck at `0.0`. v0.0.3 retains that replacement unchanged and adds read-only,
+rate-limited diagnostics for the fragment callback, the controller's `mQs`
+binding, legacy-fragment wiring, and expansion propagation. v0.0.3 is a local
+build awaiting a human-gated device run; debug, lint, and release/R8 validation
+all pass locally.
 
-The v0.0.2 milestone is a minimal proof of concept for Xiaomi 15 Pro
+The v0.0.3 diagnostic milestone is a minimal proof of concept for Xiaomi 15 Pro
 (`haotian`) on HyperOS 3 / Android 16. It attempts one transformation only:
 when SystemUI asks its fragment injection manager to instantiate the exact
 class name `com.android.systemui.qs.MiuiQSFragment`, substitute
@@ -43,10 +47,17 @@ MiuiQSFragment class name is requested; every other call uses
 callback arguments, and hook errors all produce a `HyperOSP:` diagnostic and a
 no-op.
 
-M1 is initially a source-and-build proof of concept. A successful local build
-does not prove that Xiaomi's runtime implementation accepts the legacy
-fragment. Installation, LSPosed activation, scope changes, SystemUI restart,
-and all other device operations are intentionally left to a human-gated test.
+The v0.0.3 diagnostic hooks do not replace results, arguments, or receivers.
+They observe `QsFragmentListener#onFragmentViewCreated`, the resulting `mQs`
+identity, `QSFragmentLegacy` lifecycle/wiring calls, and
+`QuickSettingsControllerImpl` listening/expansion calls. Frequent expansion
+logs are bounded and sampled. Every original method is invoked exactly once;
+an original SystemUI exception is rethrown unchanged.
+
+A successful local build does not prove that the diagnostic callbacks occur or
+that the legacy fragment can expand on Xiaomi's runtime. Installation, LSPosed
+activation, scope changes, SystemUI restart, and all other device operations
+remain human-gated.
 
 ## Build
 
