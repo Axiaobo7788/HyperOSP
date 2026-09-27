@@ -24,6 +24,10 @@ tool failures belong in `PROGRESS.md` instead.
   `87e9cb8` and retains that history as provenance.
 - The inherited template already selected compileSdk/targetSdk 36, JDK 21,
   Kotlin, and modern libxposed API 100.
+- The template's annotation-based API 100 ABI matches libxposed/api commit
+  `55efdf9d159195261d7326e9e125965a90025a12`, before the later removal of
+  `@XposedHooker` callback annotations. Its `BeforeHookCallback.getArgs()`
+  contract explicitly permits modifying the returned argument array.
 - HyperOSP's namespace and Kotlin package are
   `io.github.axiaobo7788.hyperosp`.
 - M1's only static scope is `com.android.systemui`.
@@ -34,6 +38,9 @@ tool failures belong in `PROGRESS.md` instead.
   must result in a `HyperOSP:` diagnostic and no behavior change.
 - Reflection must discover the `String className` argument position from the
   compatible method signature rather than assuming an index.
+- Under the selected API 100 ABI, argument replacement is performed by writing
+  the discovered index in `BeforeHookCallback.args`; legacy `XposedHelpers` is
+  not used.
 - Local compilation verifies source, resource, and packaging consistency only.
   It does not verify LSPosed loading, OEM runtime behavior, UI correctness, or
   recovery behavior on a physical device.

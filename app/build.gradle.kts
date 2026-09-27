@@ -4,20 +4,15 @@ plugins {
 }
 
 android {
-    namespace = "io.github.libxposed.example"
+    namespace = "io.github.axiaobo7788.hyperosp"
     compileSdk = 36
 
-    externalNativeBuild.cmake {
-        path("src/main/cpp/CMakeLists.txt")
-        buildStagingDirectory = layout.buildDirectory.get().asFile
-    }
-
-
     defaultConfig {
+        applicationId = "io.github.axiaobo7788.hyperosp"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "0.0.1"
     }
 
     buildTypes {
@@ -27,10 +22,6 @@ android {
             proguardFiles("proguard-rules.pro")
             signingConfig = signingConfigs["debug"]
         }
-    }
-
-    buildFeatures {
-        viewBinding = true
     }
 
     kotlin {
@@ -56,6 +47,7 @@ android {
 }
 
 dependencies {
-    compileOnly(libs.libxposed.api)
-    implementation(libs.libxposed.service)
+    // API 100 compile-time stubs from libxposed/api commit 55efdf9.
+    // The LSPosed runtime supplies these classes; they are never packaged.
+    compileOnly(files("libs/libxposed-api-100-55efdf9.jar"))
 }

@@ -3,17 +3,10 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <application
-        android:description="@android:string/unknownName"
-        android:label="Xposed Example"
+        android:allowBackup="false"
+        android:description="@string/module_description"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault"
-        tools:ignore="MissingApplicationIcon">
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
+        tools:ignore="DataExtractionRules,MissingApplicationIcon" />
 </manifest>

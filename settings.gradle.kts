@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Xposed Example"
+rootProject.name = "HyperOSP"
 
 include(":app")
