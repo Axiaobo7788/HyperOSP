@@ -17,6 +17,11 @@ tool failures belong in `PROGRESS.md` instead.
   - `com.android.systemui.qs.QuickQSPanel`
 - M1 must attempt only `MiuiQSFragment` to `QSFragmentLegacy`. Compose QS is
   explicitly out of scope.
+- Android 16 QPR2 AOSP source retains the candidate private, non-static method
+  `FragmentHostManager.ExtensionFragmentManager#instantiateWithInjections`
+  with `(Context, String, Bundle)` parameters and an `android.app.Fragment`
+  return type. Xiaomi's runtime implementation still requires device-side
+  reflection confirmation.
 
 ## Repository and toolchain facts
 
@@ -41,6 +46,9 @@ tool failures belong in `PROGRESS.md` instead.
 - Under the selected API 100 ABI, argument replacement is performed by writing
   the discovered index in `BeforeHookCallback.args`; legacy `XposedHelpers` is
   not used.
+- The installed hook is guarded by an `AtomicBoolean` after the exact package
+  and first-package checks, so each module instance makes at most one
+  installation attempt.
 - Local compilation verifies source, resource, and packaging consistency only.
   It does not verify LSPosed loading, OEM runtime behavior, UI correctness, or
   recovery behavior on a physical device.

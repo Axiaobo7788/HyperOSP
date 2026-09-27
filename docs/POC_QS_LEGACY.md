@@ -18,23 +18,29 @@ com.android.systemui.qs.QSFragmentLegacy
 No other fragment request may be changed. In particular, M1 does not select
 `QSFragmentCompose`.
 
-## Candidate hook
+## Final local hook point
 
-The initial candidate is:
+M1 uses:
 
 ```text
 com.android.systemui.fragments.FragmentHostManager$ExtensionFragmentManager
     instantiateWithInjections(Context, String, Bundle)
 ```
 
-This is an OEM/runtime compatibility hypothesis, not yet device-validated.
-HyperOSP must resolve the nested class from SystemUI's class loader, enumerate
-methods named `instantiateWithInjections`, and accept exactly one compatible,
-non-ambiguous candidate. The compatible signature must contain one
-`android.content.Context`, one `java.lang.String`, and one `android.os.Bundle`
-parameter. The `String` position is derived from the reflected parameter list
-and retained for the hook callback; it is never assumed from the candidate
-signature text above.
+Android 16 QPR2 AOSP source confirms that this method is the final step used by
+the extension manager before consulting the injection map or falling back to
+platform `Fragment.instantiate`:
+https://android.googlesource.com/platform/frameworks/base/+/android16-qpr2-release/packages/SystemUI/src/com/android/systemui/fragments/FragmentHostManager.java
+
+The Xiaomi implementation remains an OEM/runtime compatibility hypothesis
+until device logs confirm it. HyperOSP resolves the nested class from
+SystemUI's class loader, enumerates methods named `instantiateWithInjections`,
+and accepts exactly one compatible, non-ambiguous candidate. The method must
+be non-static, return exact type `android.app.Fragment`, and contain exactly
+one `android.content.Context`, one `java.lang.String`, and one
+`android.os.Bundle` parameter. The `String` position is derived from the
+reflected parameter list and retained for the hook callback; it is never
+assumed from the signature text above.
 
 ## Installation algorithm
 
@@ -48,10 +54,11 @@ signature text above.
 6. Find one and only one signature-compatible
    `instantiateWithInjections` method and derive its sole `String` argument
    index. If the method is missing or ambiguous, log and return.
-7. Install one modern libxposed before-hook.
-8. In the callback, compare the reflected argument safely. Only an exact match
-   for `MiuiQSFragment` is replaced with `QSFragmentLegacy`; all other values
-   are untouched.
+7. Install one modern libxposed API 100 before-hook. The selected API contract
+   explicitly permits mutation through `BeforeHookCallback.getArgs()`.
+8. In the callback, bounds-check the discovered index and compare the argument
+   safely. Only an exact match for `MiuiQSFragment` is replaced with
+   `QSFragmentLegacy`; all other values are untouched.
 9. Catch and log every HyperOSP-owned failure so compatibility drift produces a
    no-op rather than a deliberate SystemUI crash.
 
@@ -67,10 +74,46 @@ The module must emit `HyperOSP:`-prefixed diagnostics for:
 - an actual class-name replacement
 - any caught exception
 
-## Validation status
+## Local validation status
 
-The target classes were verified in the target APK before this bootstrap. The
-candidate method and its runtime signature still require reflection evidence
-from the first human-gated device run. No installation, LSPosed activation,
-scope change, SystemUI restart, or device command is authorized during local
-implementation.
+- Target classes were verified in the target APK before this bootstrap.
+- The upstream Android 16 method and flow are source-confirmed.
+- Debug compilation, lint, release/R8, Xposed metadata, scope, compile-only API
+  exclusion, entry-name adaptation, and hook annotation retention pass locally.
+- The Xiaomi method, actual hook installation, replacement execution, QS UI,
+  and SystemUI stability still require the first human-gated device run.
+
+No installation, LSPosed activation, scope change, SystemUI restart, or device
+command was performed during local implementation.
+
+## First device validation (human-gated)
+
+1. Before enabling HyperOSP, confirm that LSPosed Manager is reachable and
+   that the framework's normal safe-mode/rescue route is available.
+2. Install `app/build/outputs/apk/debug/app-debug.apk`.
+3. Enable only HyperOSP and verify its scope contains only
+   `com.android.systemui`.
+4. Capture/export LSPosed logs, then perform one controlled SystemUI restart or
+   device reboot using the tester's established procedure.
+5. Before opening Quick Settings, confirm the `HyperOSP:` sequence reports
+   module load, the SystemUI process/package, both fragments found, hook target
+   found, and hook installed.
+6. Open Quick Settings once and confirm exactly one class-name replacement log.
+   Check expansion, collapse, tile interaction, notifications, lock screen,
+   orientation/configuration changes, and a second QS open for stability.
+7. Treat any missing compatibility check as a safe no-op result, not a pass.
+   Treat a SystemUI crash, boot loop, broken shade, or repeated replacement
+   failure as a failed M1 device test.
+
+## Recovery on failure (human-gated)
+
+1. Stop repeated QS interaction or repeated SystemUI restarts.
+2. Disable HyperOSP in LSPosed Manager (or use the already-confirmed LSPosed
+   safe-mode/rescue path if the UI is unavailable).
+3. Remove HyperOSP's scope or uninstall the debug APK only after the module is
+   disabled.
+4. Restart SystemUI or reboot once using the tester's established recovery
+   procedure, then verify the stock SystemUI and Quick Settings are restored.
+5. Preserve the LSPosed/HyperOSP logs from the failed run before retrying. Do
+   not modify Magisk/KernelSU, boot, recovery, partitions, or AVB merely to
+   recover from this application-level PoC.

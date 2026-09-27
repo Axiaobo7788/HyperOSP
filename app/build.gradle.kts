@@ -43,6 +43,13 @@ android {
     lint {
         abortOnError = true
         checkReleaseBuilds = false
+        // M1 deliberately targets SDK 36 and retains the verified template
+        // toolchain while the API 100 proof of concept is device-tested.
+        disable += setOf(
+            "AndroidGradlePluginVersion",
+            "NewerVersionAvailable",
+            "OldTargetApi",
+        )
     }
 }
 
