@@ -90,7 +90,13 @@ class HyperOSPModule : XposedModule() {
         try {
             LegacyQsDiagnostics(this).install(classLoader)
         } catch (throwable: Throwable) {
-            safeLog("HyperOSP: caught exception while installing diagnostics", throwable)
+            safeLog("HyperOSP: caught exception while installing QS diagnostics", throwable)
+        }
+
+        try {
+            PanelCollapseDiagnostics(this).install(classLoader)
+        } catch (throwable: Throwable) {
+            safeLog("HyperOSP: caught exception while installing panel diagnostics", throwable)
         }
     }
 
