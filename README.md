@@ -3,11 +3,13 @@
 HyperOSP is an experimental LSPosed module for narrowly scoped, fail-safe
 HyperOS SystemUI compatibility experiments.
 
-**Current status:** the v0.0.1 M1 source, debug APK, lint, and release/R8
-packaging checks pass locally. The code is ready for the first human-gated
-LSPosed device validation; it has not yet been installed or run on a phone.
+**Current status:** v0.0.2 migrates M1 to the formal libxposed API 101 artifact
+after the API 101 framework was verified to disable the old API 100 build.
+Source, lint, debug packaging, and release/R8 checks pass locally. The API 101
+APK is ready for the first human-gated SystemUI validation; v0.0.2 has not been
+installed, enabled, or run on a phone.
 
-The v0.0.1 milestone is a minimal proof of concept for Xiaomi 15 Pro
+The v0.0.2 milestone is a minimal proof of concept for Xiaomi 15 Pro
 (`haotian`) on HyperOS 3 / Android 16. It attempts one transformation only:
 when SystemUI asks its fragment injection manager to instantiate the exact
 class name `com.android.systemui.qs.MiuiQSFragment`, substitute
@@ -16,7 +18,7 @@ class name `com.android.systemui.qs.MiuiQSFragment`, substitute
 ## M1 boundaries
 
 - Package scope: `com.android.systemui` only
-- Hook API: modern libxposed API 100
+- Hook API: modern libxposed API 101 (`io.github.libxposed:api:101.0.0`)
 - Build: Kotlin, JDK 21, compileSdk/targetSdk 36
 - No Compose QS substitution
 - No `miui.systemui.plugin` scope
@@ -34,10 +36,12 @@ com.android.systemui.fragments.FragmentHostManager$ExtensionFragmentManager
 
 It first verifies both fragment classes, then requires exactly one compatible
 method. The sole `String` parameter index is discovered from reflection rather
-than assumed. The API 100 before-hook mutates that argument only when its value
-is the exact MiuiQSFragment class name. Missing classes, a changed or ambiguous
-signature, invalid callback arguments, and hook errors all produce a
-`HyperOSP:` diagnostic and a no-op.
+than assumed. The API 101 `XposedInterface.Hooker` copies the immutable Chain
+arguments and calls `chain.proceed(modifiedArgs)` only when the exact
+MiuiQSFragment class name is requested; every other call uses
+`chain.proceed()`. Missing classes, a changed or ambiguous signature, invalid
+callback arguments, and hook errors all produce a `HyperOSP:` diagnostic and a
+no-op.
 
 M1 is initially a source-and-build proof of concept. A successful local build
 does not prove that Xiaomi's runtime implementation accepts the legacy
@@ -186,7 +190,7 @@ The LSPosed module should own runtime behavior. A future Magisk / KernelSU compa
 The project is bootstrapped from the modern libxposed example lineage, currently using the maintained example at:
 
 - `JingMatrix/libxposed-example`
-- Xposed API >= 100
+- Xposed API 101
 - Android / compile SDK 36
 - JDK 21
 

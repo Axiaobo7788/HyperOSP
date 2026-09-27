@@ -44,7 +44,9 @@ assumed from the signature text above.
 
 ## Installation algorithm
 
-1. Log module construction with the `HyperOSP:` prefix.
+1. In API 101 `onModuleLoaded`, record the process and log module load with the
+   `HyperOSP:` prefix. The entry class has a no-argument constructor and does no
+   pre-attach initialization.
 2. Ignore every package except the exact `com.android.systemui` package.
 3. Log package and process, then ignore non-first package-load callbacks.
 4. Probe `MiuiQSFragment` and `QSFragmentLegacy` with the supplied class loader
@@ -54,11 +56,12 @@ assumed from the signature text above.
 6. Find one and only one signature-compatible
    `instantiateWithInjections` method and derive its sole `String` argument
    index. If the method is missing or ambiguous, log and return.
-7. Install one modern libxposed API 100 before-hook. The selected API contract
-   explicitly permits mutation through `BeforeHookCallback.getArgs()`.
-8. In the callback, bounds-check the discovered index and compare the argument
-   safely. Only an exact match for `MiuiQSFragment` is replaced with
-   `QSFragmentLegacy`; all other values are untouched.
+7. Install one API 101 `XposedInterface.Hooker` through
+   `hook(method).setExceptionMode(PROTECTIVE).intercept(hooker)`.
+8. In `intercept(Chain)`, bounds-check the discovered index and compare the
+   argument safely. For an exact `MiuiQSFragment` match, copy the immutable
+   Chain arguments, replace only that copied element, and return
+   `chain.proceed(modifiedArgs)`. All other calls return `chain.proceed()`.
 9. Catch and log every HyperOSP-owned failure so compatibility drift produces a
    no-op rather than a deliberate SystemUI crash.
 
@@ -78,8 +81,11 @@ The module must emit `HyperOSP:`-prefixed diagnostics for:
 
 - Target classes were verified in the target APK before this bootstrap.
 - The upstream Android 16 method and flow are source-confirmed.
-- Debug compilation, lint, release/R8, Xposed metadata, scope, compile-only API
-  exclusion, entry-name adaptation, and hook annotation retention pass locally.
+- API 100 v0.0.1 was disabled by the API 101 test framework before its module
+  logic could run; the API 100 route is rejected.
+- API 101 debug compilation, lint, release/R8, Xposed metadata, scope,
+  compile-only API exclusion, entry-name adaptation, and Chain/intercept
+  references pass locally for v0.0.2.
 - The Xiaomi method, actual hook installation, replacement execution, QS UI,
   and SystemUI stability still require the first human-gated device run.
 
@@ -212,11 +218,15 @@ verifyClass(miuiQs)
 verifyClass(legacyQs)
 verifyTargetMethod()
 
-hookBefore(targetMethod) { callback ->
+hook(targetMethod).intercept { chain ->
     val index = classNameArgumentIndex
-    if (callback.args[index] == miuiQs) {
-        callback.args[index] = legacyQs
+    if (chain.args[index] == miuiQs) {
+        val modifiedArgs = chain.args.toTypedArray()
+        modifiedArgs[index] = legacyQs
         log("QS backend: MiuiQSFragment -> QSFragmentLegacy")
+        chain.proceed(modifiedArgs)
+    } else {
+        chain.proceed()
     }
 }
 ```

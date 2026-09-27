@@ -19,21 +19,17 @@ kept to make that provenance auditable. Apache-2.0 material may be combined in
 this GPLv3 project, but its original attribution and license notices remain in
 force.
 
-## libxposed API 100 compile-time stub
+## libxposed API 101
 
-`app/libs/libxposed-api-100-55efdf9.jar` contains compile-time-only API classes
-built from libxposed/api commit
-`55efdf9d159195261d7326e9e125965a90025a12` (`Add two methods for
-constructors`). The source history was obtained from the public mirror at
-https://gitlab.com/xposed_grp/LSPosed/libxposed/api.
+HyperOSP compiles against the formal Maven Central artifact
+`io.github.libxposed:api:101.0.0`. Its upstream project is
+https://github.com/libxposed/api.
 
-The stub is Apache-2.0 licensed. It is declared as a Gradle `compileOnly`
-dependency and is not packaged into the HyperOSP APK; the Xposed framework
-provides the runtime implementation. The Apache-2.0 text is retained at
-`LICENSES/Apache-2.0.txt`.
-
-The committed stub JAR SHA-256 is
-`a99a8dd3ac87b3fddd0730b01880848bb07f1292e29fdfcfe513152e524b2953`.
+The API artifact is Apache-2.0 licensed. It is declared as a Gradle
+`compileOnly` dependency and is not packaged into the HyperOSP APK; the Xposed
+framework provides the runtime implementation. The Apache-2.0 text is retained
+at `LICENSES/Apache-2.0.txt`. The former repository-local API 100 stub was
+removed when v0.0.2 migrated to API 101.
 
 ## Build dependencies
 

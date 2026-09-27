@@ -23,16 +23,34 @@ tool failures belong in `PROGRESS.md` instead.
   return type. Xiaomi's runtime implementation still requires device-side
   reflection confirmation.
 
+## Verified runtime framework compatibility
+
+- **Verified runtime:** 当前测试框架使用 Xposed/libxposed API101，API100
+  HyperOSP 会被管理器自动禁用，因此 API100 路线已否决。
+- M1 now uses `minApiVersion=101` and `targetApiVersion=101`. API 102 is not a
+  migration target for this checkpoint.
+- Because the manager disabled v0.0.1 before module execution, that attempt did
+  not validate the hook point, class replacement, QS rendering, or SystemUI
+  stability.
+
 ## Repository and toolchain facts
 
 - The local repository was cloned from JingMatrix/libxposed-example at commit
   `87e9cb8` and retains that history as provenance.
-- The inherited template already selected compileSdk/targetSdk 36, JDK 21,
-  Kotlin, and modern libxposed API 100.
-- The template's annotation-based API 100 ABI matches libxposed/api commit
-  `55efdf9d159195261d7326e9e125965a90025a12`, before the later removal of
-  `@XposedHooker` callback annotations. Its `BeforeHookCallback.getArgs()`
-  contract explicitly permits modifying the returned argument array.
+- The inherited template selected compileSdk/targetSdk 36, JDK 21, and Kotlin.
+- HyperOSP v0.0.2 compiles against the formal Maven Central dependency
+  `io.github.libxposed:api:101.0.0` as `compileOnly`; the API is supplied by the
+  framework at runtime and is not packaged in the APK.
+- API 101 entry classes have a no-argument `XposedModule()` constructor. The
+  framework attaches its interface before calling `onModuleLoaded`, which now
+  owns HyperOSP's process-level initialization.
+- API 101 hooks implement `XposedInterface.Hooker#intercept(Chain)`. Chain
+  arguments are immutable, so replacement uses a copied array and
+  `chain.proceed(modifiedArgs)`.
+- The published API 101.0.0 source and current LSPosed/CorePatch implementation
+  agree on the no-argument lifecycle and HookBuilder/Chain interceptor model.
+  HyperCeiler's current main branch targets API 102, so it was treated as a
+  compatibility-pattern reference rather than the M1 compile ABI.
 - HyperOSP's namespace and Kotlin package are
   `io.github.axiaobo7788.hyperosp`.
 - M1's only static scope is `com.android.systemui`.
@@ -43,9 +61,12 @@ tool failures belong in `PROGRESS.md` instead.
   must result in a `HyperOSP:` diagnostic and no behavior change.
 - Reflection must discover the `String className` argument position from the
   compatible method signature rather than assuming an index.
-- Under the selected API 100 ABI, argument replacement is performed by writing
-  the discovered index in `BeforeHookCallback.args`; legacy `XposedHelpers` is
-  not used.
+- Under API 101, argument replacement is performed by copying `Chain.args`,
+  changing only the discovered index, and invoking `chain.proceed(copy)`;
+  non-matching calls invoke `chain.proceed()` unchanged.
+- The hook builder uses `ExceptionMode.PROTECTIVE`, and HyperOSP catches its own
+  pre-proceed inspection/rewrite failures. Exceptions from the original method
+  invocation are not swallowed or retried, avoiding duplicate execution.
 - The installed hook is guarded by an `AtomicBoolean` after the exact package
   and first-package checks, so each module instance makes at most one
   installation attempt.
@@ -296,7 +317,8 @@ Conclusion: Xiaomi's SystemUI plugin architecture is not simply the public AOSP 
 
 ## Public projects worth mining
 
-- `JingMatrix/libxposed-example` — modern libxposed API >= 100 project base.
+- `JingMatrix/libxposed-example` — modern libxposed project base retained for
+  scaffold provenance; HyperOSP itself now compiles against API 101.0.0.
 - `ReChronoRain/HyperCeiler` — mature HyperOS SystemUI / plugin hooks and compatibility patterns.
 - `YunZiA/HyperStar` — HyperOS control-center customization and plugin scope examples.
 

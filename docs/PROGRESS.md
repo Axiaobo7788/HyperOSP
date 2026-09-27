@@ -4,9 +4,16 @@ Last updated: 2026-09-27
 
 ## Current checkpoint
 
-The M1 code and local build are complete and ready for the first human-gated
-LSPosed device validation. No APK has been installed and no device, LSPosed,
-SystemUI, Magisk, KernelSU, boot, or recovery action has been performed.
+HyperOSP v0.0.2 has completed the API 100 to API 101 migration and all required
+local validation. It is ready for the first human-gated API 101 SystemUI
+LSPosed test.
+
+The prior v0.0.1 device attempt produced one Verified runtime result: the
+current Xposed/libxposed API 101 manager rejected and automatically disabled the
+API 100 module before HyperOSP code could execute. That result rejects the API
+100 route but does not validate or invalidate the M1 Hook point. No v0.0.2 APK
+installation, module enablement, scope change, SystemUI restart, or other
+device operation was performed during this migration.
 
 The working tree began as an unmodified JingMatrix/libxposed-example clone at
 `87e9cb8`. The first implementation pass was completed while the HyperOSP
@@ -20,11 +27,13 @@ history rewrite was used.
 | Milestone | State | Evidence / remaining work |
 | --- | --- | --- |
 | Safe repository bootstrap | Complete | Template history preserved; `origin` is HyperOSP, `upstream` is JingMatrix, work is on `feat/aosp-qs-legacy-poc` |
-| Minimal HyperOSP module | Complete | UI/service/native demos removed; package, app identity, metadata, API 100 and SystemUI-only scope verified in APK |
-| M1 legacy QS hook | Locally complete | Exact package/first-load gates, class probes, non-ambiguous signature validation, reflected String index and guarded replacement implemented |
-| Local debug build | Complete | Clean debug build passes on JDK 21; APK metadata and dex references inspected |
-| Lint and release/R8 packaging | Complete | `lintDebug`, minified `assembleRelease`, metadata rewriting and runtime hook annotations verified |
-| Physical-device LSPosed validation | Human-gated | No installation or device action has been performed |
+| Minimal HyperOSP module | Complete | v0.0.2/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope verified in both APKs |
+| API 101 migration | Complete | No-argument module entry, `onModuleLoaded`, `Hooker#intercept(Chain)`, protective HookBuilder and copied-argument proceed path implemented |
+| M1 legacy QS hook | Locally complete | Exact package/first-load gates, class probes, non-ambiguous signature validation, reflected String index and exact guarded replacement preserved |
+| Local debug build | Complete | Clean debug build passes on JDK 21; APK metadata and DEX references inspected |
+| Lint and release/R8 packaging | Complete | `lintDebug`, minified `assembleRelease`, resource entry rewriting and API 101 Chain/intercept references verified |
+| API 100 compatibility | Rejected by runtime | API 101 manager automatically disabled v0.0.1 before module execution |
+| Physical-device API 101 SystemUI validation | Human-gated | v0.0.2 has not been installed, enabled, scoped, or executed on the device |
 
 ## Validation boundary
 
@@ -33,26 +42,43 @@ legacy fragment renders correctly, or that the device recovery path works.
 Those claims require the explicit human-gated device procedure documented at
 the M1 handoff.
 
-## Final local build evidence
+## v0.0.2 final local build evidence
 
-- Required command: `./gradlew :app:assembleDebug` — passed
-- Final comprehensive command:
+- Bootstrap command: `./gradlew :app:assembleDebug` — passed against the formal
+  API 101 dependency.
+- Required comprehensive command:
   `./gradlew clean :app:lintDebug :app:assembleDebug :app:assembleRelease`
-- Result: `BUILD SUCCESSFUL` (89 actionable tasks); lint reports
+- Result: `BUILD SUCCESSFUL` (89 actionable tasks; 86 executed, 3 up-to-date);
+  lint reports
   `No issues found.`
 - Package: `io.github.axiaobo7788.hyperosp`
-- Version: `0.0.1` (`versionCode=1`)
+- Version: `0.0.2` (`versionCode=2`)
 - compileSdk/targetSdk: 36 / 36
-- APK metadata contains only the HyperOSP Java entry, API 100 static metadata,
-  and `com.android.systemui` scope; no native library was packaged.
-- The compile-only libxposed stub is absent from the APK; dex entries contain
-  only runtime references to API 100.
-- R8 rewrites `java_init.list` to the obfuscated entry and retains runtime
-  `XposedHooker`, `BeforeInvocation`, and `AfterInvocation` annotations.
+- Dependency: formal `compileOnly("io.github.libxposed:api:101.0.0")` from Maven
+  Central; the repository-local API 100 stub is deleted.
+- Both APKs contain `minApiVersion=101`, `targetApiVersion=101`,
+  `staticScope=true`, and exactly one scope line: `com.android.systemui`.
+- The compile-only API is not defined or packaged in either APK; DEX contains
+  runtime references to the API 101 no-argument `XposedModule`,
+  `XposedInterface.Hooker`, `XposedInterface.Chain`, HookBuilder/intercept,
+  `ExceptionMode.PROTECTIVE`, and both `Chain.proceed` forms.
+- No `XposedHooker`, `BeforeInvocation`, `AfterInvocation`,
+  `BeforeHookCallback`, or `AfterHookCallback` reference exists in either APK.
+- Debug `java_init.list` names
+  `io.github.axiaobo7788.hyperosp.HyperOSPModule`. R8 rewrites the release entry
+  to `l`; DEX inspection confirms that `l` exists, extends `XposedModule`, has a
+  public no-argument constructor, and retains `onModuleLoaded` and
+  `onPackageLoaded`.
+- The R8 hooker class implements `XposedInterface.Hooker`; its `intercept`
+  bytecode calls unchanged `Chain.proceed()` or modified-argument
+  `Chain.proceed(Object[])` exactly once.
+- Neither APK contains a native library.
 - Debug APK SHA-256:
-  `df20327f72322478aa24ff6ad756bf320e9a978a9c0eaa690dea2359bc654509`
-- Release-check APK SHA-256:
-  `229ced6d7ada96394f2e7c7ad8df8b38f6d16824a56aa57e7649cacb8fd0323a`
+  `e51f88152eb9bebdf9d55bd0dcf7a0cb3955a80c6d6ea93bfedf2fba6eeda229`
+- Release APK SHA-256:
+  `a8f653eb0f543e05766973111badac015a89446321fd2e0c78e43756a2a3cb35`
+- Release is signed with the debug signing configuration as a packaging/R8
+  verification artifact, not as a production release.
 
 ## Repository history status
 

@@ -8,29 +8,28 @@ package io.github.axiaobo7788.hyperosp
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import io.github.libxposed.api.XposedInterface
-import io.github.libxposed.api.XposedInterface.AfterHookCallback
-import io.github.libxposed.api.XposedInterface.BeforeHookCallback
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
-import io.github.libxposed.api.annotations.AfterInvocation
-import io.github.libxposed.api.annotations.BeforeInvocation
-import io.github.libxposed.api.annotations.XposedHooker
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.util.concurrent.atomic.AtomicBoolean
 
-class HyperOSPModule(base: XposedInterface, moduleParam: ModuleLoadedParam) :
-    XposedModule(base, moduleParam) {
+class HyperOSPModule : XposedModule() {
 
-    private val processName = moduleParam.processName
+    @Volatile
+    private var processName = UNKNOWN_PROCESS
     private val installAttempted = AtomicBoolean(false)
 
-    init {
+    override fun onModuleLoaded(param: ModuleLoadedParam) {
+        super.onModuleLoaded(param)
+        processName = param.processName
         safeLog("HyperOSP: module loaded; process=$processName")
     }
 
+    @SuppressLint("NewApi")
     override fun onPackageLoaded(param: PackageLoadedParam) {
         if (param.packageName != SYSTEM_UI_PACKAGE) return
 
@@ -42,13 +41,15 @@ class HyperOSPModule(base: XposedInterface, moduleParam: ModuleLoadedParam) :
         if (!param.isFirstPackage || !installAttempted.compareAndSet(false, true)) return
 
         try {
-            installLegacyQsHook(param.classLoader)
+            installLegacyQsHook(param.defaultClassLoader)
         } catch (throwable: Throwable) {
             safeLog("HyperOSP: caught exception while installing hook", throwable)
         }
     }
 
-    @SuppressLint("PrivateApi")
+    // API 101 exposes hook(Executable) and invokes this path from its
+    // Android-Q-or-newer onPackageLoaded callback. M1 targets Android 16.
+    @SuppressLint("PrivateApi", "NewApi")
     private fun installLegacyQsHook(classLoader: ClassLoader) {
         val miuiQsFound = probeClass(
             classLoader = classLoader,
@@ -72,10 +73,11 @@ class HyperOSPModule(base: XposedInterface, moduleParam: ModuleLoadedParam) :
         }
 
         val target = resolveHookTarget(managerClass) ?: return
-        LegacyQsFragmentHooker.configure(this, target.classNameArgumentIndex)
 
         try {
-            hook(target.method, LegacyQsFragmentHooker::class.java)
+            hook(target.method)
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                .intercept(LegacyQsFragmentHooker(this, target.classNameArgumentIndex))
             safeLog(
                 "HyperOSP: hook installed: ${target.method.declaringClass.name}#" +
                     "${target.method.name}; classNameIndex=${target.classNameArgumentIndex}",
@@ -151,9 +153,9 @@ class HyperOSPModule(base: XposedInterface, moduleParam: ModuleLoadedParam) :
     private fun safeLog(message: String, throwable: Throwable? = null) {
         try {
             if (throwable == null) {
-                log(message)
+                log(Log.INFO, LOG_TAG, message)
             } else {
-                log(message, throwable)
+                log(Log.ERROR, LOG_TAG, message, throwable)
             }
         } catch (_: Throwable) {
             // Logging must never become a new SystemUI failure path.
@@ -165,56 +167,49 @@ class HyperOSPModule(base: XposedInterface, moduleParam: ModuleLoadedParam) :
         val classNameArgumentIndex: Int,
     )
 
-    @XposedHooker
-    class LegacyQsFragmentHooker private constructor() : XposedInterface.Hooker {
+    private class LegacyQsFragmentHooker(
+        private val module: HyperOSPModule,
+        private val classNameArgumentIndex: Int,
+    ) : XposedInterface.Hooker {
 
-        companion object {
-            @Volatile
-            private var module: HyperOSPModule? = null
-
-            @Volatile
-            private var classNameArgumentIndex: Int = INVALID_ARGUMENT_INDEX
-
-            fun configure(module: HyperOSPModule, classNameArgumentIndex: Int) {
-                this.module = module
-                this.classNameArgumentIndex = classNameArgumentIndex
+        override fun intercept(chain: XposedInterface.Chain): Any? {
+            val modifiedArguments = try {
+                buildModifiedArguments(chain)
+            } catch (throwable: Throwable) {
+                module.safeLog(
+                    "HyperOSP: caught exception during class-name replacement",
+                    throwable,
+                )
+                null
             }
 
-            @JvmStatic
-            @BeforeInvocation
-            fun beforeInvocation(callback: BeforeHookCallback) {
-                val activeModule = module ?: return
+            return if (modifiedArguments == null) {
+                chain.proceed()
+            } else {
+                chain.proceed(modifiedArguments)
+            }
+        }
 
-                try {
-                    val index = classNameArgumentIndex
-                    val arguments = callback.args
-                    if (index !in arguments.indices) {
-                        activeModule.safeLog(
-                            "HyperOSP: hook callback compatibility check failed; " +
-                                "classNameIndex=$index args=${arguments.size}",
-                        )
-                        return
-                    }
-
-                    val requestedClassName = arguments[index] as? String ?: return
-                    if (requestedClassName != MIUI_QS_FRAGMENT) return
-
-                    arguments[index] = LEGACY_QS_FRAGMENT
-                    activeModule.safeLog(
-                        "HyperOSP: actual class-name replacement: " +
-                            "$MIUI_QS_FRAGMENT -> $LEGACY_QS_FRAGMENT",
-                    )
-                } catch (throwable: Throwable) {
-                    activeModule.safeLog(
-                        "HyperOSP: caught exception during class-name replacement",
-                        throwable,
-                    )
-                }
+        private fun buildModifiedArguments(chain: XposedInterface.Chain): Array<Any?>? {
+            val arguments = chain.args
+            if (classNameArgumentIndex !in arguments.indices) {
+                module.safeLog(
+                    "HyperOSP: hook callback compatibility check failed; " +
+                        "classNameIndex=$classNameArgumentIndex args=${arguments.size}",
+                )
+                return null
             }
 
-            @JvmStatic
-            @AfterInvocation
-            fun afterInvocation(@Suppress("UNUSED_PARAMETER") callback: AfterHookCallback) = Unit
+            val requestedClassName = arguments[classNameArgumentIndex] as? String ?: return null
+            if (requestedClassName != MIUI_QS_FRAGMENT) return null
+
+            val modifiedArguments = arguments.toTypedArray()
+            modifiedArguments[classNameArgumentIndex] = LEGACY_QS_FRAGMENT
+            module.safeLog(
+                "HyperOSP: actual class-name replacement: " +
+                    "$MIUI_QS_FRAGMENT -> $LEGACY_QS_FRAGMENT",
+            )
+            return modifiedArguments
         }
     }
 
@@ -226,6 +221,7 @@ class HyperOSPModule(base: XposedInterface, moduleParam: ModuleLoadedParam) :
             "com.android.systemui.fragments.FragmentHostManager\$ExtensionFragmentManager"
         private const val HOOK_METHOD_NAME = "instantiateWithInjections"
         private const val PLATFORM_FRAGMENT = "android.app.Fragment"
-        private const val INVALID_ARGUMENT_INDEX = -1
+        private const val LOG_TAG = "HyperOSP"
+        private const val UNKNOWN_PROCESS = "<unknown>"
     }
 }

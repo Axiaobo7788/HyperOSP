@@ -5,7 +5,7 @@ These instructions apply to the entire repository.
 ## Project boundary
 
 - HyperOSP is an LSPosed module written in Kotlin with the modern libxposed API.
-- The v0.0.1/M1 scope is only `com.android.systemui`.
+- The v0.0.2/M1 scope is only `com.android.systemui`.
 - Do not add `miui.systemui.plugin`, a settings UI, Magisk, KernelSU, or other
   companion components during M1.
 - Do not install the APK, change LSPosed state or scope, run device-side
@@ -16,11 +16,14 @@ These instructions apply to the entire repository.
 ## Build and API constraints
 
 - Use JDK 21, Kotlin, compileSdk 36, and targetSdk 36.
-- Use modern libxposed API 100 or newer. Do not introduce legacy
+- Use the formal `io.github.libxposed:api:101.0.0` dependency and target
+  libxposed API 101 for M1. Do not introduce legacy
   `XposedHelpers` or `XposedBridge` APIs.
 - The required local verification command is `./gradlew :app:assembleDebug`.
-- Keep `META-INF/xposed/module.prop` on API 100 with `staticScope=true` and keep
+- Keep `META-INF/xposed/module.prop` on API 101 with `staticScope=true` and keep
   `scope.list` restricted to `com.android.systemui` for M1.
+- API 100 is rejected because the verified API 101 test framework disables
+  API 100 modules. Do not target API 102 during the M1 API migration.
 
 ## Hook safety
 
@@ -109,7 +112,8 @@ Repository-only work, builds, decompilation, and public-source research do not r
 ## Repository rules
 
 - Primary language: Kotlin.
-- Modern libxposed API (API >= 100).
+- Modern libxposed API 101 for M1; API 100 is runtime-incompatible with the
+  current test framework and API 102 is intentionally deferred.
 - Initial scope: `com.android.systemui` only.
 - Minimum Android target for the first PoC: HyperOS 3 / Android 16.
 - Keep device-specific compatibility isolated from generic hooks.
