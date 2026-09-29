@@ -189,6 +189,82 @@ body. Their precise owning method and predicate path remain unverified. v0.0.4
 is intended to identify that live path from the `true -> false` caller stack
 without guessing a DEX signature or changing behavior.
 
+## Verified runtime: v0.0.4 diagnostics
+
+The third API 101 device run rejected the central v0.0.4 assumption:
+
+- `NotificationPanelExpandController` has no live `setPanelVisible`,
+  `startPanelVisibleAnimation`, or `panelVisible` field on this build;
+- `ShadeControllerImpl` collapse methods exist and do run;
+- the installed `ShadeControllerSceneImpl` hooks did not run in the captured
+  interaction;
+- some `notification_panel_hidden` events had no preceding observed
+  `ShadeControllerImpl` collapse call; and
+- the caller stack captured from inside the API 101 interceptor stopped at
+  HyperOSP/libxposed trampoline frames.
+
+The rewrite, OEM one-argument listener, and final controller `mQs` binding all
+continued to succeed. The repeated failure sequence was `panel_open`,
+`notification_panel_revealed`, `NotificationShade reportDrawFinished`, then
+roughly 150-500 ms later `notification_panel_hidden`.
+
+The `NotificationPanelExpandController` visibility-setter direction is now
+rejected. Explicit `ShadeController` collapse remains secondary correlation
+evidence, not the leading cause.
+
+当前核心假设：“Legacy QS 已实例化和绑定；failed pull-down 更像
+NotificationPanelViewController 手势结束/fling 判定回弹，而非
+QuickSettings wiring 或显式 ShadeController collapse。”
+
+## v0.0.5 observation-only gesture diagnostics
+
+v0.0.5 leaves the fragment rewrite and QS binding observation unchanged. Its
+primary target is the reflected live class:
+
+```text
+com.android.systemui.shade.NotificationPanelViewController
+```
+
+It inventories and observes these exact method names without guessing an OEM
+overload:
+
+- `setExpandedHeight` and `setExpandedHeightInternal`: accept only reflected
+  `void` methods with one primitive float/double input. Logging is sampled,
+  while a module-owned tracker records whether the **actual reflected expanded
+  height field** grew from zero during the gesture. The field is never written.
+- `endMotionEvent`: log indexed arguments, readable expanded-height/fraction
+  state, the gesture summary, available `PanelInteractiveManager` state, and
+  filtered real SystemUI callers before and after normal completion.
+- `flingExpands`: log indexed inputs before execution and the original boolean
+  result after execution. The result is not replaced.
+- `flingToHeight`: log every indexed input and, only for the exact AOSP
+  descriptor `(float, boolean, float, float, boolean): void`, label index 2 as
+  `targetHeight` and explicitly report whether it is zero. A different OEM
+  descriptor is logged with an unresolved target rather than guessed.
+
+Android 16 AOSP source confirms the above five-argument `flingToHeight` shape
+and the `endMotionEvent -> flingExpands -> flingToHeight` decision flow. That
+source guides the strict descriptor gate but does not establish Xiaomi's live
+signature; the v0.0.5 runtime inventory must do that.
+
+The diagnostic also inventories
+`com.miui.systemui.shade.PanelInteractiveManager` members named
+`controlCenterInteractive`, `notificationInteractive`, and
+`entirePanelTouchable`. It classifies fields and return types as boolean,
+StateFlow, `Function0`/lambda, or other object; hooks only reflected no-argument
+property-like methods; reads StateFlow through `getValue()`; and never invokes
+an OEM lambda. Exact generated `$property$1` classes are inventoried by name.
+
+Caller capture scans past the interceptor instead of truncating the first few
+frames. It removes Thread/VMStack, reflection, libxposed/LSPosed, and HyperOSP
+frames, then prefers up to ten `com.android.systemui` or
+`com.miui.systemui` frames. `ShadeControllerImpl` and
+`ShadeControllerSceneImpl` collapse observations remain at two initial logs
+and every fiftieth call.
+
+No v0.0.5 hook forces expansion, changes `flingExpands`, suppresses collapse,
+writes panel state, invokes a property lambda, or selects Compose QS.
+
 ## Required diagnostics
 
 The module must emit `HyperOSP:`-prefixed diagnostics for:
@@ -210,22 +286,26 @@ The module must emit `HyperOSP:`-prefixed diagnostics for:
 - API 101 hook installation, replacement execution, and SystemUI survival are
   device-verified for v0.0.2; usable QS rendering and expansion are not.
 - v0.0.3 callback, binding, delegate, wiring, expansion bounds, and policy
-  state are device-verified. v0.0.4 collapse-source diagnostics still require
-  the next human-gated device run.
-- v0.0.4 clean debug, lint, and release/R8 builds pass locally; APK metadata,
-  SystemUI-only scope, API 101 entry points, and diagnostic Hooker references
-  were statically inspected.
+  state are device-verified.
+- v0.0.4 runtime rejected the NotificationPanelExpandController visibility
+  path and showed that explicit ShadeController collapse calls do not account
+  for every hide.
+- v0.0.5 clean debug, lint, and release/R8 builds pass locally. APK inspection
+  confirms API 101 metadata, SystemUI-only scope, the debug and R8-rewritten
+  module entries, new observation markers, and removal of the rejected
+  panel-visible diagnostic markers.
+- v0.0.5 device behavior is unverified until the next human-gated debug run.
 
 No installation, LSPosed activation, scope change, SystemUI restart, or device
 command was performed during local implementation.
 
-## v0.0.4 diagnostic validation (human-gated)
+## v0.0.5 diagnostic validation (human-gated)
 
 1. Before enabling HyperOSP, confirm that LSPosed Manager is reachable and
    that the framework's normal safe-mode/rescue route is available.
-2. Temporarily remove `com.android.systemui` scope from HyperCeiler,
-   RestoreSplashScreen, and any other module, or disable those modules for this
-   one baseline run.
+2. Temporarily remove `com.android.systemui` scope from RestoreSplashScreen,
+   HyperCeiler, and every other module so HyperOSP is the only SystemUI hook
+   module for this baseline.
 3. Install `app/build/outputs/apk/debug/app-debug.apk`.
 4. Enable only HyperOSP and verify its scope contains only
    `com.android.systemui`.
@@ -235,9 +315,10 @@ command was performed during local implementation.
    module load, the SystemUI process/package, both fragments found, hook target
    found, replacement hook installed, and diagnostic-hook install outcomes.
 7. Make one controlled pull-down attempt in `use_control_panel=0`, then stop and
-   preserve the complete `HyperOSP:` sequence. The key evidence is the
-   reflected collapse-method inventory, `startPanelVisibleAnimation` caller,
-   and the compact stack attached to `panelVisible true -> false`.
+   preserve the complete `HyperOSP:` sequence. The key evidence is the live
+   NPVC method inventory, actual height growth, `endMotionEvent` arguments and
+   state, the original `flingExpands` result, `flingToHeight` target, filtered
+   SystemUI callers, and `PanelInteractiveManager` classifications/values.
 8. Do not broaden scope, enable Compose QS, or add a compensating behavior in
    this run. Treat a missing diagnostic target as evidence of OEM drift, not as
    permission to guess a replacement.

@@ -1,6 +1,6 @@
 # HyperOSP project memory
 
-Last updated: 2026-09-27
+Last updated: 2026-09-30
 
 This file records durable project facts. Transient build output and one-off
 tool failures belong in `PROGRESS.md` instead.
@@ -78,21 +78,55 @@ tool failures belong in `PROGRESS.md` instead.
   `NotificationShade View.INVISIBLE`. The shade therefore opens and draws,
   then is actively hidden.
 
+## Verified runtime: v0.0.4 diagnostic run
+
+- The exact `MiuiQSFragment -> QSFragmentLegacy` rewrite continued to execute.
+- The HyperOS one-argument `QsFragmentListener(Fragment)` callback completed,
+  and `QuickSettingsControllerImpl.mQs` still held that same
+  `QSFragmentLegacy` instance.
+- The live `NotificationPanelExpandController` class did **not** expose the
+  assumed `setPanelVisible`, `startPanelVisibleAnimation`, or `panelVisible`
+  field. That v0.0.4 investigation direction is rejected for this OEM build.
+- Reflected collapse methods on `ShadeControllerImpl` existed and were called.
+  `ShadeControllerSceneImpl` hooks installed but no invocation was observed in
+  this run.
+- Not every `notification_panel_hidden` event had a preceding observed
+  `ShadeControllerImpl` collapse call. Explicit ShadeController collapse is
+  therefore insufficient as a complete explanation.
+- The v0.0.4 caller stack contained only HyperOSP/libxposed trampoline frames;
+  it did not identify a real SystemUI caller.
+- The repeated failure sequence was `panel_open`,
+  `notification_panel_revealed`, `NotificationShade reportDrawFinished`, then
+  roughly 150-500 ms later `notification_panel_hidden`.
+
 ## Rejected hypothesis and current hypothesis
 
 - **Rejected by verified runtime:** `QSFragmentLegacy` failed to complete the
   standard AOSP lifecycle, delegate initialization, controller binding, or QS
   wiring.
-- **Current hypothesis:** the QS backend is successfully wired; the blocker is
-  more likely in Xiaomi's NotificationPanel visibility/collapse arbitration
-  than in the normal `QuickSettingsControllerImpl` to `QSFragmentLegacy`
-  wiring.
+- **Rejected by verified runtime:**
+  `NotificationPanelExpandController#setPanelVisible`,
+  `startPanelVisibleAnimation`, or a `panelVisible` field owns the observed
+  close on this build.
+- **Current highest-priority hypothesis:** Legacy QS is instantiated and bound;
+  the failed pull-down more likely rebounds from
+  `NotificationPanelViewController` gesture-end/fling judgment than from
+  Quick Settings wiring or an explicit `ShadeController` collapse.
+- **当前核心假设：**“Legacy QS 已实例化和绑定；failed pull-down 更像
+  NotificationPanelViewController 手势结束/fling 判定回弹，而非
+  QuickSettings wiring 或显式 ShadeController collapse。”
 
-## Verified APK symbols and unresolved ownership
+## Verified APK/source symbols and unresolved ownership
 
-- The inspected MiuiSystemUI DEX contains `panelVisible`, `setPanelVisible`,
-  `startPanelVisibleAnimation`, `collapsePanels`, `collapseShade`,
-  `animateCollapseShade`, and `instantCollapseShade`, together with the strings
+- The inspected MiuiSystemUI DEX contains
+  `NotificationPanelViewController` symbols `endMotionEvent`, `flingExpands`,
+  `flingToHeight`, `setExpandedHeight`, and `setExpandedHeightInternal`, plus
+  the strings `NPVC flingExpands called with vel:` and
+  `endMotionEvent: flingExpands`.
+- The same APK inspection found
+  `com.miui.systemui.shade.PanelInteractiveManager`, generated class-name
+  symbols for `controlCenterInteractive$1`, `notificationInteractive$1`, and
+  `entirePanelTouchable$1`, and the strings
   `controlCenterInteractive, not excepted notification panel expand.` and
   `not excepted notification panel expand.`
 - The original uploaded APK is not present in the current local workspace, and
@@ -100,10 +134,15 @@ tool failures belong in `PROGRESS.md` instead.
   The precise method owning those two strings and its branch predicate are
   therefore **not yet verified**; do not infer ownership from the strings
   alone.
-- v0.0.4 resolves this boundary without guessed signatures: it enumerates
-  live methods from the SystemUI ClassLoader, installs observation hooks only
-  for reflected concrete methods, and captures the caller stack only on an
-  observed `panelVisible` `true -> false` transition.
+- Android 16 AOSP source shows the corresponding flow as
+  `endMotionEvent(MotionEvent,float,float,boolean)` calling
+  `flingExpands(float,float,float,float)`, then selecting a target through
+  `flingToHeight(float,boolean,float,float,boolean)`. This is a source
+  reference, not proof of Xiaomi's runtime descriptor.
+- v0.0.5 enumerates the live OEM methods and only labels argument index 2 as
+  `targetHeight` when the complete five-parameter descriptor exactly matches
+  that AOSP source shape. A different runtime shape remains logged but
+  unresolved rather than guessed.
 
 ## Verified source: QS hand-off path
 
@@ -119,20 +158,23 @@ tool failures belong in `PROGRESS.md` instead.
 
 ## Active hypotheses
 
-- A Xiaomi-specific arbitration path may reject notification-panel expansion
-  while the control center is considered interactive, while
-  `useControlCenter` is in a conflicting state, or when the active QS object is
-  not a Xiaomi `MiuiQS` / `MiuiQSFragment` type.
-- A standard shade collapse entry point may be called shortly after the first
-  successful draw for another reason. v0.0.4 observes the actual caller and
-  reflected state but does not block that call.
+- `NotificationPanelViewController#endMotionEvent` may receive a cancel or use
+  `flingExpands` to choose collapse; the resulting `flingToHeight` target may
+  be `0` even though expanded height rose during the drag.
+- Xiaomi's `PanelInteractiveManager` may expose
+  `controlCenterInteractive`, `notificationInteractive`, or
+  `entirePanelTouchable` as a field, StateFlow/property getter, or generated
+  lambda result involved in that judgment. Its exact representation and value
+  are pending runtime inventory.
+- Sparse `ShadeControllerImpl` calls remain useful correlation evidence, but
+  are no longer the primary root-cause hypothesis.
 
 ## Repository and toolchain facts
 
 - The local repository was cloned from JingMatrix/libxposed-example at commit
   `87e9cb8` and retains that history as provenance.
 - The inherited template selected compileSdk/targetSdk 36, JDK 21, and Kotlin.
-- HyperOSP v0.0.4 continues to compile against the formal Maven Central dependency
+- HyperOSP v0.0.5 continues to compile against the formal Maven Central dependency
   `io.github.libxposed:api:101.0.0` as `compileOnly`; the API is supplied by the
   framework at runtime and is not packaged in the APK.
 - API 101 entry classes have a no-argument `XposedModule()` constructor. The
@@ -148,6 +190,21 @@ tool failures belong in `PROGRESS.md` instead.
 - HyperOSP's namespace and Kotlin package are
   `io.github.axiaobo7788.hyperosp`.
 - M1's only static scope is `com.android.systemui`.
+
+## v0.0.5 diagnostic safety contract
+
+- Height observation is rate-limited and records the reflected actual expanded
+  height before/after the original setter. A module-owned gesture tracker only
+  reports whether that actual value grew from zero; it never writes the OEM
+  field.
+- `endMotionEvent` arguments, readable expanded-height/fraction fields,
+  `flingExpands` inputs/original boolean result, and `flingToHeight` arguments
+  are observed without modification.
+- Caller collection scans the full Java stack, filters Thread/VMStack,
+  libxposed/LSPosed, reflection, and HyperOSP frames, and prefers the first real
+  `com.android.systemui` / `com.miui.systemui` frames.
+- A StateFlow value may be read through its side-effect-free `getValue()`;
+  generated `Function0`/lambda objects are classified but never invoked.
 
 ## Safety and validation boundary
 

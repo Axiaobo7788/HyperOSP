@@ -7,20 +7,23 @@ HyperOS SystemUI compatibility experiments.
 `MiuiQSFragment -> QSFragmentLegacy` replacement, `QSFragmentLegacy`
 lifecycle, `QSImpl` delegate creation, normal AOSP wiring, controller `mQs`
 binding, expansion bounds, and expansion-enabled policy state all complete.
-The notification shade opens and draws, then becomes hidden and invisible
-about 100-300 ms later. The former "legacy QS was not wired" hypothesis is
-therefore rejected.
+The v0.0.4 device run further proved that the assumed
+`NotificationPanelExpandController#setPanelVisible` /
+`startPanelVisibleAnimation` / `panelVisible` path does not exist on this OEM
+build. `ShadeControllerImpl` collapse methods do run, but not before every
+observed hide, so that path cannot explain the blocker by itself.
 
-v0.0.4 retains the fragment rewrite unchanged and narrows diagnostics to the
-Xiaomi notification-panel visibility/collapse arbitration path. It observes
-the reflected `panelVisible` setter, emits a compact stack only for a real
-`true -> false` transition, records `startPanelVisibleAnimation` direction and
-caller when compatible, and observes only collapse methods whose runtime class
-and full signature were first confirmed by reflection. It does not suppress a
-collapse, change a return value, or write panel state. Clean debug, lint, and
-release/R8 builds pass locally; the next step is a human-gated device log run.
+v0.0.5 retains the fragment rewrite unchanged and moves observation to
+`NotificationPanelViewController`: actual expanded-height transitions,
+`endMotionEvent`, the original `flingExpands` result, and the reflected
+`flingToHeight` target. It also inventories Xiaomi's
+`PanelInteractiveManager` properties as fields, StateFlow values, getters, or
+generated lambdas without invoking lambdas or changing state. Sparse
+`ShadeController` logging remains supporting evidence only. Clean debug,
+lint, and release/R8 builds pass locally. The next step is a human-gated
+debug-APK run with HyperOSP as the only SystemUI hook module.
 
-The v0.0.4 diagnostic milestone is a minimal proof of concept for Xiaomi 15 Pro
+The v0.0.5 diagnostic milestone is a minimal proof of concept for Xiaomi 15 Pro
 (`haotian`) on HyperOS 3 / Android 16. It attempts one transformation only:
 when SystemUI asks its fragment injection manager to instantiate the exact
 class name `com.android.systemui.qs.MiuiQSFragment`, substitute
@@ -54,20 +57,23 @@ MiuiQSFragment class name is requested; every other call uses
 callback arguments, and hook errors all produce a `HyperOSP:` diagnostic and a
 no-op.
 
-The v0.0.4 diagnostic hooks do not replace results, arguments, or receivers.
+The v0.0.5 diagnostic hooks do not replace results, arguments, or receivers.
 They accept the verified HyperOS one-argument
 `QsFragmentListener#onFragmentViewCreated(Fragment)` signature (while retaining
 the compatible AOSP two-argument form), observe the resulting `mQs` identity,
-and then focus on `NotificationPanelExpandController#setPanelVisible`,
-`startPanelVisibleAnimation`, and reflected collapse-call owners. The old
-frame-adjacent `updateExpansion` and `setQsExpansion` traces are removed.
-Every original method is invoked exactly once; an original SystemUI exception
-is rethrown unchanged.
+and then reflect the real `NotificationPanelViewController` methods before
+installing read-only interceptors. Height logs are rate-limited; gesture-end
+and fling decisions include actual expansion state and filtered SystemUI caller
+frames. `flingExpands` results and `flingToHeight` arguments are returned and
+forwarded unchanged. The old frame-adjacent QS wiring traces and the rejected
+`NotificationPanelExpandController` visibility path are removed. Every
+original method is invoked exactly once; an original SystemUI exception is
+rethrown unchanged.
 
-A successful local build does not identify the caller that closes the shade;
-that evidence requires the next human-gated runtime log. Installation, LSPosed
-activation, scope changes, SystemUI restart, and all other device operations
-remain human-gated.
+A successful local build does not prove which gesture predicate returns false
+or whether the final target height is zero; that evidence requires the next
+human-gated runtime log. Installation, LSPosed activation, scope changes,
+SystemUI restart, and all other device operations remain human-gated.
 
 ## Build
 

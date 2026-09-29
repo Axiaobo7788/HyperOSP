@@ -1,22 +1,27 @@
 # HyperOSP progress
 
-Last updated: 2026-09-27
+Last updated: 2026-09-30
 
 ## Current checkpoint
 
-HyperOSP v0.0.4 is compiled and statically verified as an observation-only M1
-diagnostic build.
-It retains the device-verified class-name rewrite, corrects the OEM
-one-argument fragment-listener matcher, removes frame-adjacent legacy wiring
-logs, and focuses on the reflected `panelVisible` transition and collapse call
-chain. It never suppresses a collapse or writes panel state.
+HyperOSP v0.0.5 is compiled and statically verified as an observation-only M1
+diagnostic build. It retains the device-verified class-name rewrite and OEM
+one-argument listener handling, but replaces the rejected
+`NotificationPanelExpandController` visibility investigation with reflected
+`NotificationPanelViewController` height, `endMotionEvent`, `flingExpands`, and
+`flingToHeight` observations. It also inventories
+`PanelInteractiveManager` fields/getters/StateFlow/lambda shapes without
+invoking an OEM lambda or writing any state.
 
 The v0.0.3 API 101 device run verified `QSFragmentLegacy#onViewCreated`,
 `mQsImpl -> QSImpl`, every expected standard AOSP wiring call, final controller
 `mQs`, valid expansion bounds, and enabled policy/ambient state. The shade
-opened and drew, then was hidden and made invisible about 100-300 ms later.
-Consequently, incomplete legacy-QS wiring is rejected; the active blocker is
-now more likely Xiaomi's notification-panel visibility/collapse arbitration.
+opened and drew, then was hidden shortly afterward. The v0.0.4 run then proved
+that the assumed panel-visible setter/field path does not exist on this build
+and that observed ShadeController collapse calls do not precede every hide.
+Consequently, incomplete legacy-QS wiring and that visibility-controller path
+are rejected. The current leading question is whether NPVC's gesture-end/fling
+decision explicitly targets height zero.
 The APK is ready for a human-gated diagnostic run; no APK installation,
 LSPosed change, device command, or SystemUI restart was performed while
 preparing it.
@@ -33,26 +38,70 @@ history rewrite was used.
 | Milestone | State | Evidence / remaining work |
 | --- | --- | --- |
 | Safe repository bootstrap | Complete | Template history preserved; `origin` is HyperOSP, `upstream` is JingMatrix, work is on `feat/aosp-qs-legacy-poc` |
-| Minimal HyperOSP module | Complete | v0.0.4/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope retained |
+| Minimal HyperOSP module | Complete | v0.0.5/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope retained |
 | API 101 migration | Complete | No-argument module entry, `onModuleLoaded`, `Hooker#intercept(Chain)`, protective HookBuilder and copied-argument proceed path implemented |
 | M1 legacy QS hook | Runtime partially verified | Exact rewrite and full standard legacy-QS lifecycle/wiring succeeded; shade opens/draws but is actively hidden shortly afterward |
 | v0.0.3 QS wiring diagnostics | Runtime complete | Delegate, wiring, final mQs, expansion bounds, and enabled-state evidence captured; missing-wiring hypothesis rejected |
-| v0.0.4 collapse diagnostics | Implementation complete | OEM listener matcher fixed; panel transition stack, animation caller, reflected collapse-method hooks, and arbitration inventory are observation-only |
+| v0.0.4 collapse diagnostics | Runtime complete | Assumed NotificationPanelExpandController setter/field path rejected; ShadeController calls are not a complete cause; old caller filtering failed |
+| v0.0.5 NPVC gesture diagnostics | Implementation complete | Runtime method inventory, actual height growth, end-motion state, original fling result, target height, filtered SystemUI callers, and PanelInteractiveManager inventory are observation-only |
 | Local debug build | Complete | Clean debug build passes on JDK 21; metadata, scope, entry, version, DEX references, and SHA-256 verified |
 | Lint and release/R8 packaging | Complete | `lintDebug` reports no issues; minified release builds and its rewritten `t0` entry is valid |
 | API 100 compatibility | Rejected by runtime | API 101 manager automatically disabled v0.0.1 before module execution |
 | First API 101 device run | Completed with functional blocker | Rewrite succeeded and SystemUI lived; shade expansion stayed at `0.0` |
-| Clean v0.0.4 diagnostic run | Human-gated | Temporarily exclude other SystemUI modules, then capture the true-to-false stack and reflected collapse-call sequence from one pull-down |
+| Clean v0.0.5 diagnostic run | Human-gated | Use the debug APK with HyperOSP as the only SystemUI hook module, then capture one controlled pull-down sequence |
 
 ## Validation boundary
 
-Do not interpret v0.0.4 compilation as proof that its reflected visibility
-setter or collapse methods resolve on the OEM build. The complete legacy-QS
-wiring facts above are device-verified. The still-open question is which live
-caller changes `panelVisible` from true to false and whether the suspicious
-Xiaomi control-center arbitration state appears in that path.
+Do not interpret v0.0.5 compilation as proof that the live OEM signatures will
+match Android 16 AOSP, that `flingExpands` returns false, that target height is
+zero, or that a `PanelInteractiveManager` value participates in the decision.
+Those are the next device-log questions. Compilation and DEX inspection only
+prove that the fail-safe observation machinery and packaging are present.
 
-## v0.0.4 local build evidence
+当前核心假设：“Legacy QS 已实例化和绑定；failed pull-down 更像
+NotificationPanelViewController 手势结束/fling 判定回弹，而非
+QuickSettings wiring 或显式 ShadeController collapse。”
+
+## v0.0.5 local build evidence
+
+- Fast source check: `./gradlew :app:compileDebugKotlin` — `BUILD SUCCESSFUL`.
+- Required comprehensive command:
+  `./gradlew clean :app:lintDebug :app:assembleDebug :app:assembleRelease`
+- Result: `BUILD SUCCESSFUL` in 25s (89 actionable tasks; 86 executed,
+  3 up-to-date); lint reports `No issues found.`
+- Package: `io.github.axiaobo7788.hyperosp`
+- Version: `0.0.5` (`versionCode=5`)
+- compileSdk/targetSdk: 36 / 36; JDK toolchain: 21
+- Both APKs contain `minApiVersion=101`, `targetApiVersion=101`,
+  `staticScope=true`, and exactly one scope line: `com.android.systemui`.
+- Debug `java_init.list` names
+  `io.github.axiaobo7788.hyperosp.HyperOSPModule`. R8 rewrites the release entry
+  to `t0`; DEX inspection confirms `t0` is public, extends `XposedModule`, has a
+  public no-argument constructor, and retains public `onModuleLoaded` and
+  `onPackageLoaded` callbacks.
+- Debug DEX contains the six v0.0.5 Hooker implementations for actual height,
+  end-motion, fling decision/result, target height, interactive getter, and
+  sparse collapse observation. All use the one unchanged
+  `proceedUnchanged -> Chain.proceed()` path; the separate fragment rewrite
+  retains its mutually exclusive copied-argument proceed path.
+- Both builds retain NPVC inventory, height/end-motion/fling,
+  `PanelInteractiveManager`, sparse collapse, and filtered-caller log markers.
+  The rejected `panelVisible true -> false` and
+  `startPanelVisibleAnimation` diagnostic markers are absent.
+- Neither APK packages libxposed, an API 100 stub, a legacy annotation
+  callback, or a native library.
+- Debug APK:
+  `app/build/outputs/apk/debug/app-debug.apk`
+- Debug SHA-256:
+  `391d3c019cc227d571507c34a34a7d743010ba384b769c1cbd90cb5ad6b94b68`
+- Release APK:
+  `app/build/outputs/apk/release/app-release.apk`
+- Release SHA-256:
+  `eaa29a39ba5baac26e2704a0bf768a284158423a33106e038571287037a9c879`
+- Release remains debug-signed for packaging/R8 verification and is not a
+  production release artifact.
+
+## v0.0.4 historical local build evidence
 
 - Fast source check: `./gradlew :app:compileDebugKotlin` — `BUILD SUCCESSFUL`.
 - Required comprehensive command:
