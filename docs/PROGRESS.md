@@ -67,8 +67,8 @@ QuickSettings wiring 或显式 ShadeController collapse。”
 - Fast source check: `./gradlew :app:compileDebugKotlin` — `BUILD SUCCESSFUL`.
 - Required comprehensive command:
   `./gradlew clean :app:lintDebug :app:assembleDebug :app:assembleRelease`
-- Result: `BUILD SUCCESSFUL` in 25s (89 actionable tasks; 86 executed,
-  3 up-to-date); lint reports `No issues found.`
+- Result: `BUILD SUCCESSFUL` in 21s (89 actionable tasks; 85 executed,
+  4 up-to-date); lint reports `No issues found.`
 - Package: `io.github.axiaobo7788.hyperosp`
 - Version: `0.0.5` (`versionCode=5`)
 - compileSdk/targetSdk: 36 / 36; JDK toolchain: 21
@@ -97,7 +97,7 @@ QuickSettings wiring 或显式 ShadeController collapse。”
 - Release APK:
   `app/build/outputs/apk/release/app-release.apk`
 - Release SHA-256:
-  `eaa29a39ba5baac26e2704a0bf768a284158423a33106e038571287037a9c879`
+  `08aedc6eb1626b5c519097be4ae00ef7f49e88a31a5bb853139e901988758ce4`
 - Release remains debug-signed for packaging/R8 verification and is not a
   production release artifact.
 
