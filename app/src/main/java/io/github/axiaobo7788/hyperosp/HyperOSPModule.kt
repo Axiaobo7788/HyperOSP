@@ -94,9 +94,9 @@ class HyperOSPModule : XposedModule() {
         }
 
         try {
-            PanelCollapseDiagnostics(this).install(classLoader)
+            ShadeGestureDiagnostics(this).install(classLoader)
         } catch (throwable: Throwable) {
-            safeLog("HyperOSP: caught exception while installing panel diagnostics", throwable)
+            safeLog("HyperOSP: caught exception while installing shade diagnostics", throwable)
         }
     }
 

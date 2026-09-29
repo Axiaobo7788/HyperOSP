@@ -14,7 +14,7 @@ import java.lang.reflect.Modifier
  * Low-volume confirmation of the QS fragment hand-off.
  *
  * The v0.0.3 device run already proved that the legacy fragment delegate and
- * standard AOSP wiring initialize correctly. v0.0.4 therefore keeps only the
+ * standard AOSP wiring initialize correctly. v0.0.5 therefore keeps only the
  * listener/binding observation and removes the frame-adjacent wiring and
  * expansion traces.
  */
