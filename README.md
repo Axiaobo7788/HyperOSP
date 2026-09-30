@@ -7,24 +7,34 @@ HyperOS SystemUI compatibility experiments.
 `MiuiQSFragment -> QSFragmentLegacy` replacement, `QSImpl` creation, standard
 AOSP wiring, final controller `mQs` binding, and a real full-shade expansion
 of roughly 2400 px / fraction 1.0. The legacy backend can therefore be hosted
-by this HyperOS build. The remaining M1 blocker is collapse causality:
-`NotificationPanelViewController` reaches an `expand=false`, target-height-zero
-fling after gesture end, and Xiaomi also has an asynchronous collapse route in
-an R8-merged Runnable class.
+by this HyperOS build. A later controlled pull-down narrowed the remaining M1
+blocker further: the last MOVE still had `mExpandedHeight` around 2176, but a
+few milliseconds later the `NotificationPanelViewController.TouchHandler`
+entered ACTION_UP with height and fraction already zero. This precedes
+`endMotionEvent` and fling; false-touch was not required.
 
-v0.0.6 keeps the sole behavioral fragment rewrite unchanged and adds only
-observation. Each touch receives a `gesture#N` correlation id; sampled height,
-the actual inlined end-motion inputs, false-touch result, `fling$2` decision,
-`flingToHeight` target, collapse origin, and the three
-`PanelInteractiveManager` StateFlow values are recorded without modification.
-Static DEX analysis also corrects an important naming trap: the Injector field
-named `boostRunnable` is `classId=0` and only performs a 2000 ms CPU boost. The
-collapse role is a temporary `classId=1` instance created by
-`onEmptySpaceClick()` and posted without delay to the panel view. The next step
-is a human-gated controlled gesture run using the unminified debug APK with
-HyperOSP as the only SystemUI hook module.
+v0.0.7 keeps the sole behavioral fragment rewrite unchanged and adds only
+observation around the verified external-touch hand-off:
+`MiuiShadeTouchHandlerImpl -> NotificationPanelViewControllerInjector ->
+NotificationPanelViewController.TouchHandler`. It correlates terminal-event
+before/after snapshots with `gesture#N`, reads the three
+`PanelInteractiveManager` StateFlow values, and emits one high-priority log
+when the actual expanded-height writer crosses from above 100 px to at most
+1 px. End-motion, false-touch, and fling logs remain only as low-frequency
+downstream-cleanup context.
 
-The v0.0.6 diagnostic milestone is a minimal proof of concept for Xiaomi 15 Pro
+Static DEX analysis of the exact ignored target APK identifies the real writer
+as `NotificationPanelViewController$$ExternalSyntheticLambda24#run()`. The OEM
+`setExpandedHeightInternal$1(float)` synchronously creates that Runnable and,
+outside keyguard, substitutes either max panel height or zero according to
+`NotificationPanelExpandController.visible`. The diagnostic observes this
+clamp and its writer but does not override either. The next step is a
+human-gated controlled run using the unminified debug APK. HyperCeiler remains
+enabled only for its `system_control_center_unlock_old` prerequisite; its
+other SystemUI tweaks, RestoreSplashScreen, and other SystemUI modules should
+remain disabled.
+
+The v0.0.7 diagnostic milestone is a minimal proof of concept for Xiaomi 15 Pro
 (`haotian`) on HyperOS 3 / Android 16. It attempts one transformation only:
 when SystemUI asks its fragment injection manager to instantiate the exact
 class name `com.android.systemui.qs.MiuiQSFragment`, substitute
@@ -58,24 +68,21 @@ MiuiQSFragment class name is requested; every other call uses
 callback arguments, and hook errors all produce a `HyperOSP:` diagnostic and a
 no-op.
 
-The v0.0.6 diagnostics resolve exact OEM descriptors from the live class
-loader. On the inspected target DEX, the end-motion decision is inlined in the
-static R8 accessor
-`-$$Nest$mendMotionEvent(NotificationPanelViewController, MotionEvent, float,
-float, boolean)` rather than a separately hookable `flingExpands` method. The
-diagnostic observes that accessor, `isFalseTouch(float,float,int)`,
-`fling$2(float,float,boolean,boolean)`, the five-argument `flingToHeight`,
-collapse overloads, touch entry, height setters, `onEmptySpaceClick`, the
-merged Runnable's `run()`, and its separate CPU-boost scheduling callback.
-Every observation interceptor invokes the original exactly once with the
-original receiver and arguments, returns its unmodified result, and rethrows
-an original exception unchanged.
+The v0.0.7 diagnostics resolve exact OEM descriptors from the live class
+loader. They observe both `handleExternalTouch` boundaries, the concrete
+TouchHandler entry, `setExpandedHeightInternal$1(float)`, and the synthetic
+Runnable that actually writes both expansion fields. A zero-crossing is logged
+only when the actual field changes from above 100 px to at most 1 px. The
+static R8 end-motion accessor, `isFalseTouch(float,float,int)`,
+`fling$2(float,float,boolean,boolean)`, and the five-argument `flingToHeight`
+remain as one-per-gesture downstream summaries. Every observation interceptor
+invokes the original exactly once with the original receiver and arguments,
+returns its unmodified result, and rethrows an original exception unchanged.
 
 A successful local build proves only that this observation machinery and its
-packaging are coherent. It does not yet prove which input makes the ordinary
-fling collapse or whether the asynchronous empty-space collapse belongs to the
-same failed gesture. Installation, LSPosed activation, scope changes, SystemUI
-restart, and all other device operations remain human-gated.
+packaging are coherent. It does not yet prove which external-touch transition
+requests the zero write. Installation, LSPosed activation, scope changes,
+SystemUI restart, and all other device operations remain human-gated.
 
 ## Build
 

@@ -4,26 +4,34 @@ Last updated: 2026-09-30
 
 ## Current checkpoint
 
-HyperOSP v0.0.6 is implemented as an observation-only M1 causality build. It
-retains the device-verified fragment rewrite and replaces the broad v0.0.5
-inventory with exact target-DEX paths: touch sessions, the static R8
-end-motion accessor, `isFalseTouch`, `fling$2`, `flingToHeight`, collapse
-overloads, direct `PanelInteractiveManager` StateFlow reads, and distinct R8
-Runnable roles. Every diagnostic invokes the original exactly once and does
-not modify arguments, results, exceptions, scheduling, or SystemUI state.
+HyperOSP v0.0.7 is implemented as an observation-only external-touch
+zero-reset causality build. It retains the device-verified fragment rewrite
+and narrows diagnostics to the exact outer Xiaomi handler, Injector handler,
+NPVC TouchHandler, OEM height clamp, and concrete synthetic expansion writer.
+Every diagnostic invokes the original exactly once and does not modify
+arguments, results, exceptions, events, ownership, flow values, scheduling, or
+SystemUI state.
 
-The v0.0.5 device run proved that the legacy backend reaches full shade
-expansion (about 2400 px / fraction 1.0) before NPVC selects `expand=false` and
-targets height zero. It also observed a collapse attributed to Xiaomi's
-`boostRunnable$1` class. Static DEX analysis now shows that this is an R8 merged
-class: the held `boostRunnable` field is class id 0 and only performs a CPU
-boost; the class-id-1 collapse role is allocated in `onEmptySpaceClick()` and
-posted without delay. v0.0.6 correlates those independent paths with
-`gesture#N` identifiers.
+The latest device run proved that a normal pull-down can retain about 2176 px
+at the final MOVE but enter NPVC ACTION_UP a few milliseconds later with both
+height and fraction already zero. This happens before end-motion/fling, and
+false-touch is not required. The first-cause search has therefore moved from
+fling inputs to Xiaomi's external-touch hand-off.
+
+Static DEX analysis of the exact ignored APK verified both external-touch
+descriptors and found no direct expansion reset in either method. It identified
+`NotificationPanelViewController$$ExternalSyntheticLambda24#run()` as the
+actual field writer and the synchronous OEM
+`setExpandedHeightInternal$1(float)` path that can clamp a non-keyguard value
+to max height or zero according to `NotificationPanelExpandController.visible`.
+The v0.0.7 trap logs only the first actual >100-to-at-most-1 px transition per
+gesture, with caller and interactive-flow state.
 
 The comprehensive build, lint, R8, metadata, entry, DEX-marker, exclusion, and
-hash checks all pass locally. No APK installation, LSPosed change, device
-command, or SystemUI restart was performed while preparing this diagnostic.
+hash checks all pass locally.
+
+No APK installation, LSPosed change, device command, or SystemUI restart was
+performed while preparing this diagnostic.
 
 The working tree began as an unmodified JingMatrix/libxposed-example clone at
 `87e9cb8`. The first implementation pass was completed while the HyperOSP
@@ -37,7 +45,7 @@ history rewrite was used.
 | Milestone | State | Evidence / remaining work |
 | --- | --- | --- |
 | Safe repository bootstrap | Complete | Template history preserved; `origin` is HyperOSP, `upstream` is JingMatrix, work is on `feat/aosp-qs-legacy-poc` |
-| Minimal HyperOSP module | Complete | v0.0.6/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope retained |
+| Minimal HyperOSP module | Complete | v0.0.7/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope retained |
 | API 101 migration | Complete | No-argument module entry, `onModuleLoaded`, `Hooker#intercept(Chain)`, protective HookBuilder and copied-argument proceed path implemented |
 | M1 legacy QS hook | Runtime partially verified | Exact rewrite and full standard legacy-QS lifecycle/wiring succeeded; shade opens/draws but is actively hidden shortly afterward |
 | v0.0.3 QS wiring diagnostics | Runtime complete | Delegate, wiring, final mQs, expansion bounds, and enabled-state evidence captured; missing-wiring hypothesis rejected |
@@ -46,24 +54,71 @@ history rewrite was used.
 | v0.0.5 causality run | Runtime complete | Full expansion reached; ordinary end-motion selected `expand=false` / target 0; an R8 merged class-id-1 collapse path also ran |
 | v0.0.6 DEX causality analysis | Complete | CPU-boost field role and temporary empty-space collapse role separated; exact scheduler conditions and inlined fling decision recovered |
 | v0.0.6 causality diagnostics | Implementation complete | Gesture ids, exact decision inputs, direct StateFlow reads, schedule checks, Runnable class ids, collapse origins, and filtered callers are observation-only |
-| Local debug build | Complete | Clean debug build passes on JDK 21; metadata, scope, entry, version, DEX references, exclusions, and SHA-256 verified |
-| Lint and release/R8 packaging | Complete | `lintDebug` reports no issues; minified release builds and rewritten `u0` entry is valid |
+| v0.0.6 external timing run | Runtime complete | Final MOVE retained about 2176 px; NPVC ACTION_UP entry was already zero before end-motion/fling; false-touch was false |
+| v0.0.7 external DEX analysis | Complete | Exact two boundary descriptors, UP/CANCEL ownership flow, synchronous OEM clamp, and concrete expansion field writer verified |
+| v0.0.7 zero-reset diagnostics | Implementation complete | Terminal before/after boundaries, once-per-gesture actual zero crossing, direct StateFlow snapshots, and downstream summaries are observation-only |
+| Local debug build | Complete | Clean debug build passes on JDK 21; metadata, scope, entry, version, DEX markers, exclusions, and SHA-256 verified |
+| Lint and release/R8 packaging | Complete | `lintDebug` reports no issues; minified release builds and rewritten `s1` entry is structurally valid |
 | API 100 compatibility | Rejected by runtime | API 101 manager automatically disabled v0.0.1 before module execution |
 | First API 101 device run | Completed with functional blocker | Rewrite succeeded and SystemUI lived; shade expansion stayed at `0.0` |
-| Clean v0.0.6 causality run | Human-gated | After local verification, use the debug APK with HyperOSP as the only SystemUI hook module and capture one controlled pull-down sequence |
+| Clean v0.0.7 zero-reset run | Human-gated | Use the debug APK; keep HyperCeiler only for `system_control_center_unlock_old`, disable its other tweaks and all other SystemUI modules, then capture one pull-down |
 
 ## Validation boundary
 
-Do not interpret v0.0.6 compilation or target-APK DEX analysis as proof of the
-next live gesture's exact inputs. Runtime must still correlate the ordinary
-gesture decision and the class-id-1 posted collapse by gesture id. It must also
-show whether any interactive StateFlow is true at the relevant decision.
+Do not interpret v0.0.7 compilation or target-APK DEX analysis as proof that
+the OEM clamp causes the live failure. Runtime must identify the first actual
+writer call and establish whether the interactive flows change before or after
+the zero transition.
 
-当前核心研究状态：“QSFragmentLegacy backend 已成功实例化、绑定并达到 full
-shade expansion。M1 当前 blocker 已缩小到 NotificationPanelViewController 的
-gesture/fling collapse decision，以及 Xiaomi
-NotificationPanelViewControllerInjector boostRunnable 合并类中的独立 collapse
-路径。”
+当前核心研究状态：“Legacy QS backend 已成功运行并可达到 full expansion。
+当前 M1 blocker 已缩小到 Xiaomi external-touch ACTION_UP handoff。需要定位
+MiuiShadeTouchHandlerImpl / NotificationPanelViewControllerInjector 之间哪个
+分支将 expandedHeight 从 >2000 重置为 0。”
+
+## v0.0.7 local build evidence
+
+- APK input integrity:
+  `research/apk/MiuiSystemUI.apk` SHA-256 is
+  `e1ef38a00753d5dbcd864ddf4c2d6a2fbb0e9aee2a0c438c0cc32e3153b2d3c7`.
+- Fast source check: `./gradlew :app:compileDebugKotlin` — `BUILD SUCCESSFUL`.
+- Required comprehensive command:
+  `./gradlew clean :app:lintDebug :app:assembleDebug :app:assembleRelease`
+- Result: `BUILD SUCCESSFUL` in 41s (89 actionable tasks; 86 executed,
+  3 up-to-date); lint text report says `No issues found.`
+- Package: `io.github.axiaobo7788.hyperosp`
+- Version: `0.0.7` (`versionCode=7`)
+- compileSdk/targetSdk: 36 / 36; JDK toolchain: 21
+- Both APKs contain `minApiVersion=101`, `targetApiVersion=101`,
+  `staticScope=true`, and exactly one scope line: `com.android.systemui`.
+- Debug `java_init.list` names
+  `io.github.axiaobo7788.hyperosp.HyperOSPModule`. R8 rewrites the release entry
+  to `s1`; DEX inspection confirms `s1` is public, extends `XposedModule`, has
+  a public no-argument constructor, and retains public `onModuleLoaded` and
+  `onPackageLoaded` callbacks.
+- The unminified debug DEX retains the exact
+  `ExternalTouchCausalityDiagnostics` class and all seven diagnostic Hooker
+  implementations: boundary, OEM height clamp, actual writer, end-motion,
+  false-touch, fling, and target-height. Release DEX retains the
+  `ZERO-CROSSING`, boundary, clamp, and downstream-cleanup markers after R8.
+- The new diagnostic source has one shared unchanged
+  `proceedUnchanged -> Chain.proceed()` call. All seven diagnostic interceptors
+  route through it. The separate behavioral fragment rewrite remains the only
+  copied-argument `proceed(modifiedArguments)` path.
+- Source/package scans find no OEM reflection setter, MotionEvent mutation,
+  flow collector, API 100 stub, legacy annotation callback, native library,
+  removed `ShadeCausalityDiagnostics`, or packaged libxposed implementation.
+- `research/apk/MiuiSystemUI.apk` is ignored and untracked. Neither APK contains
+  the research APK, its directory, a local API jar, or a native library.
+- Debug APK:
+  `app/build/outputs/apk/debug/app-debug.apk`
+- Debug SHA-256:
+  `a1c2dc77f6077d2f47ca69d88d3f4a54284a5037abb1af9ba7eb2a8ffeaad355`
+- Release APK:
+  `app/build/outputs/apk/release/app-release.apk`
+- Release SHA-256:
+  `5bca2ea42efaa29269dc0e039b70a2f1bb47392c15f202a0168e8d28fc4c7443`
+- Release remains debug-signed for packaging/R8 verification and is not a
+  production release artifact.
 
 ## v0.0.6 local build evidence
 

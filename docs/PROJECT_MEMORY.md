@@ -117,6 +117,29 @@ tool failures belong in `PROGRESS.md` instead.
   instances: `controlCenterInteractive`, `notificationInteractive`, and
   `entirePanelTouchable`.
 
+## Verified runtime: v0.0.6 external-touch timing
+
+- In a normal failed pull-down, the last observed MOVE still had
+  `mExpandedHeight` around 2176, well above 2000.
+- Only a few milliseconds later, at entry to
+  `NotificationPanelViewController$TouchHandler#onTouchEvent(ACTION_UP)`, both
+  `mExpandedHeight` and `mExpandedFraction` were already zero.
+- This reset precedes `endMotionEvent`, `isFalseTouch`, `fling$2`, and
+  `flingToHeight`; those later zero-target events can therefore be downstream
+  cleanup rather than the first cause.
+- `isFalseTouch` returned `false` in an observed failing gesture. False-touch
+  is not required for this failure.
+- The observed external path is `StatusBarWindowView -> PhoneStatusBarView ->
+  MiuiStatusBarTouchHandler -> MiuiShadeTouchHandlerImpl#handleExternalTouch ->
+  NotificationPanelViewControllerInjector#handleExternalTouch ->
+  NotificationPanelViewController$TouchHandler#onTouchEvent`.
+- **Verified runtime/environment dependency:** the target device requires
+  HyperCeiler's `system_control_center_unlock_old` behavior to expose MIUI
+  classic mode. For this diagnostic, keep only that prerequisite enabled,
+  disable other HyperCeiler SystemUI tweaks, and keep RestoreSplashScreen and
+  other SystemUI modules disabled. HyperOSP does not yet implement an unlock
+  shim.
+
 ## Rejected hypothesis and current hypothesis
 
 - **Rejected by verified runtime:** `QSFragmentLegacy` failed to complete the
@@ -128,14 +151,17 @@ tool failures belong in `PROGRESS.md` instead.
   close on this build.
 - **Rejected by verified runtime:** Legacy QS cannot reach full shade
   expansion. The observed height/fraction reached approximately 2400 / 1.0.
-- **Current highest-priority question:** which inlined end-motion input causes
-  the ordinary NPVC decision to select `expand=false`, and does the separate
-  Xiaomi class-id-1 posted collapse run in the same failed gesture?
-- **当前核心研究状态：**“QSFragmentLegacy backend 已成功实例化、绑定并达到
-  full shade expansion。M1 当前 blocker 已缩小到
-  NotificationPanelViewController 的 gesture/fling collapse decision，以及
-  Xiaomi NotificationPanelViewControllerInjector boostRunnable 合并类中的独立
-  collapse 路径。”
+- **Rejected by verified runtime:** end-motion/fling is necessarily the first
+  reset cause. Expansion can already be zero when NPVC TouchHandler enters
+  ACTION_UP.
+- **Current highest-priority question:** which branch or synchronous write in
+  the Xiaomi external-touch hand-off first changes expansion from above 2000
+  to zero before NPVC begins ACTION_UP handling?
+- **当前核心研究状态：**“Legacy QS backend 已成功运行并可达到 full
+  expansion。当前 M1 blocker 已缩小到 Xiaomi external-touch ACTION_UP
+  handoff。需要定位 MiuiShadeTouchHandlerImpl /
+  NotificationPanelViewControllerInjector 之间哪个分支将 expandedHeight 从
+  >2000 重置为 0。”
 
 ## Verified target APK DEX: v0.0.6 causality analysis
 
@@ -193,6 +219,50 @@ It must not be committed or packaged.
   `NPVC.mNotifInjector -> injector.panelInteractiveManager`; no Dagger/Lazy
   lookup, collection, or lambda invocation is required to read current values.
 
+## Verified target APK DEX: v0.0.7 external-touch and writer analysis
+
+The same ignored APK, now stored at `research/apk/MiuiSystemUI.apk`, was
+re-hashed before analysis. Its SHA-256 remains
+`e1ef38a00753d5dbcd864ddf4c2d6a2fbb0e9aee2a0c438c0cc32e3153b2d3c7`.
+
+- The exact outer signature is
+  `MiuiShadeTouchHandlerImpl#handleExternalTouch(MotionEvent, String,
+  kotlin.jvm.functions.Function1):boolean`.
+- Its normal notification route invokes
+  `NotificationPanelViewControllerInjector#handleExternalTouch(event)` first.
+  Only after that call returns does an UP/CANCEL clear outer ownership flags
+  (`statusBarHandling`, `externalSource`, `statusBarBlocking`, and
+  `shouldBlockPullDownEvent`). It does not directly write expansion fields or
+  invoke `setExpandedHeight`, `setExpandedHeightInternal`, `collapse`,
+  `instantCollapse`, or `resetViews`.
+- Other outer branches can route to Control Center, block an event, or create a
+  copied ACTION_CANCEL when Dynamic Island takes ownership. Those are real
+  arbitration branches, but none directly writes NPVC expansion in this
+  method. The three `PanelInteractiveManager` flows are not read here.
+- The exact injector signature is
+  `NotificationPanelViewControllerInjector#handleExternalTouch(MotionEvent):boolean`.
+  DOWN sets `handlingExternalTouch`; each accepted event sets
+  `currentTouchExternal` and `NPVC.mUseExternalTouch`, synchronously calls
+  `TouchHandler#onTouchEvent(event)`, then clears `mUseExternalTouch` in a
+  finally path. UP/CANCEL subsequently clears `handlingExternalTouch` and
+  `currentTouchExternal`. It contains no direct expansion write or reset call.
+- `NotificationPanelViewController#setExpandedHeight(float)` delegates to the
+  OEM `NotificationPanelViewControllerInjector#setExpandedHeightInternal$1(float)`.
+  In the ordinary non-heads-up path, that method preserves the requested value
+  on keyguard; outside keyguard it substitutes max panel height when
+  `NotificationPanelExpandController.visible` is true, otherwise zero.
+- The clamp constructs
+  `NotificationPanelViewController$$ExternalSyntheticLambda24(panel, value)`
+  and passes it to `NotificationShadeWindowControllerImpl#batchApplyWindowLayoutParams`.
+  That method calls `Runnable.run()` synchronously before applying window
+  layout params.
+- `NotificationPanelViewController$$ExternalSyntheticLambda24#run()` is the
+  concrete method that directly writes `mExpandedHeight`, derives and writes
+  `mExpandedFraction`, and continues expansion-state propagation. This is the
+  first stable field-writer observation target. Static analysis makes the OEM
+  clamp a strong candidate, but runtime evidence is still required to identify
+  the call that performs the failing >2000-to-zero transition.
+
 ## Verified source: QS hand-off path
 
 - Current AOSP `QuickSettingsControllerImpl.QsFragmentListener` assigns the
@@ -207,23 +277,26 @@ It must not be committed or packaged.
 
 ## Active hypotheses
 
-- One of the DEX-verified inlined decision inputs may explain the ordinary
-  `expand=false`: velocity magnitude/direction, fraction threshold, false-touch
-  result, 300 ms small-expansion allowance, keyguard, QS animator, or heads-up
-  collapse-snooze state. The v0.0.6 runtime log must identify the actual values.
-- The class-id-1 empty-space collapse may be scheduled from the tap/no-motion
-  end-motion branch during the same failed pull-down. Gesture-id and scheduling
-  correlation are required before treating it as the root cause.
-- The direct `PanelInteractiveManager` values may explain an earlier touch
-  rejection, but no static evidence connects them to either collapse Runnable;
-  their runtime correlation remains observational.
+- A call to the OEM height clamp between the final MOVE and NPVC ACTION_UP may
+  see `expandHelper.visible=false`, substitute zero, and synchronously invoke
+  the actual writer. This is a static candidate, not yet a verified runtime
+  cause.
+- Outer ownership arbitration, a synthesized CANCEL, or a call from another
+  synchronous SystemUI path could reach the writer before the observed UP
+  entry. The three external boundaries plus writer caller stack must establish
+  the actual order.
+- `PanelInteractiveManager` may turn false before or after expansion is cleared.
+  Direct `getValue()` snapshots at all boundaries and the writer transition
+  will distinguish correlation order without collecting or mutating flows.
+- End-motion false-touch/fling and the class-id-1 empty-space collapse remain
+  downstream correlation evidence, not the leading root-cause hypotheses.
 
 ## Repository and toolchain facts
 
 - The local repository was cloned from JingMatrix/libxposed-example at commit
   `87e9cb8` and retains that history as provenance.
 - The inherited template selected compileSdk/targetSdk 36, JDK 21, and Kotlin.
-- HyperOSP v0.0.6 continues to compile against the formal Maven Central dependency
+- HyperOSP v0.0.7 continues to compile against the formal Maven Central dependency
   `io.github.libxposed:api:101.0.0` as `compileOnly`; the API is supplied by the
   framework at runtime and is not packaged in the APK.
 - API 101 entry classes have a no-argument `XposedModule()` constructor. The
@@ -258,6 +331,24 @@ It must not be committed or packaged.
   `OTHER`. The historical label `XIAOMI_BOOST_RUNNABLE` denotes the requested
   class-id-1 diagnostic category; static analysis establishes that the actual
   Injector field called `boostRunnable` is class id 0 and is not a collapse.
+
+## v0.0.7 diagnostic safety contract
+
+- The sole behavior hook remains the exact fragment class-name substitution.
+  New v0.0.7 hooks only read/log before and after one unchanged original call.
+- Terminal UP/CANCEL is logged at the outer Xiaomi handler, Injector handler,
+  and NPVC TouchHandler. A shared `gesture#N` and `downTime` correlate the
+  nested boundaries.
+- The actual synthetic writer emits `ZERO-CROSSING` once per gesture only when
+  the real height field changes from above 100 px to at most 1 px. It records
+  both the setter's original request and the writer's effective value, state,
+  interaction flows, MotionEvent context, and filtered SystemUI callers
+  without writing any field.
+- The OEM height clamp is observed only on terminal/suspicious calls. End-motion,
+  false-touch, fling, and target-height observations are one-per-gesture
+  downstream summaries.
+- No hook modifies a MotionEvent, argument, result, exception, height,
+  fraction, ownership/tracking flag, StateFlow, collapse, or fling decision.
 
 ## Safety and validation boundary
 

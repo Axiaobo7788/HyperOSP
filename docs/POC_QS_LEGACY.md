@@ -371,6 +371,112 @@ MOVE/height events are sampled. StateFlow values are read only with
 original arguments and result, does not alter exceptions, and cannot force
 expansion, suppress collapse, skip a Runnable, or mutate OEM state.
 
+## Verified runtime: v0.0.6 external-touch timing
+
+The next device log moved the first-cause boundary ahead of end-motion:
+
+- a normal pull-down's final MOVE still had `mExpandedHeight` around 2176;
+- only milliseconds later, NPVC TouchHandler entered ACTION_UP with
+  `mExpandedHeight=0` and `mExpandedFraction=0`;
+- this was before `endMotionEvent`, `isFalseTouch`, `fling$2`, or
+  `flingToHeight` could make a gesture-end decision; and
+- an observed `isFalseTouch` result was `false`.
+
+The captured external call chain is:
+
+```text
+StatusBarWindowView
+  -> PhoneStatusBarView
+  -> MiuiStatusBarTouchHandler
+  -> MiuiShadeTouchHandlerImpl#handleExternalTouch
+  -> NotificationPanelViewControllerInjector#handleExternalTouch
+  -> NotificationPanelViewController$TouchHandler#onTouchEvent
+```
+
+End-motion/fling is therefore no longer the leading first-cause hypothesis.
+When the height is already zero, a later zero-target fling is classified as
+downstream cleanup.
+
+## v0.0.7 static external-touch control flow
+
+Analysis used the ignored `research/apk/MiuiSystemUI.apk` with SHA-256
+`e1ef38a00753d5dbcd864ddf4c2d6a2fbb0e9aee2a0c438c0cc32e3153b2d3c7`.
+The exact descriptors are:
+
+```text
+com.miui.systemui.shade.MiuiShadeTouchHandlerImpl
+  handleExternalTouch(
+      android.view.MotionEvent,
+      java.lang.String,
+      kotlin.jvm.functions.Function1
+  ): boolean
+
+com.android.systemui.shade.NotificationPanelViewControllerInjector
+  handleExternalTouch(android.view.MotionEvent): boolean
+```
+
+The outer handler has no direct `mExpandedHeight`/`mExpandedFraction` write and
+does not call any expansion setter, `collapse`, `instantCollapse`, or
+`resetViews`. On the ordinary notification branch it calls the Injector with
+the unchanged event. After that call returns, UP/CANCEL clears the outer
+ownership fields. Alternative real branches can route to Control Center,
+block the event, or send a copied CANCEL when Dynamic Island takes ownership;
+these are observable arbitration paths, not direct expansion writers.
+
+The Injector also has no expansion write or reset call. It marks the external
+touch active, sets `NPVC.mUseExternalTouch`, calls the concrete TouchHandler
+synchronously, clears `mUseExternalTouch` in a finally path, and clears its
+external ownership fields after UP/CANCEL.
+
+The real field-write chain is separate:
+
+```text
+NPVC.setExpandedHeight(float)
+  -> Injector.setExpandedHeightInternal$1(float)
+  -> NotificationShadeWindowControllerImpl.batchApplyWindowLayoutParams(
+       NotificationPanelViewController$$ExternalSyntheticLambda24
+     )
+  -> NotificationPanelViewController$$ExternalSyntheticLambda24.run()
+  -> iput mExpandedHeight
+  -> iput mExpandedFraction
+```
+
+`batchApplyWindowLayoutParams` calls the Runnable synchronously. In the normal
+non-heads-up clamp branch, keyguard preserves the requested value; outside
+keyguard, `setExpandedHeightInternal$1` substitutes max height when
+`NotificationPanelExpandController.visible` is true and substitutes zero when
+it is false. This is a strong static candidate, not yet the proven runtime
+cause.
+
+## v0.0.7 observation-only diagnostics
+
+`ExternalTouchCausalityDiagnostics` replaces the broad v0.0.6 diagnostic file
+and installs narrowly verified interceptors for:
+
+1. the Xiaomi outer `handleExternalTouch`, Injector `handleExternalTouch`, and
+   NPVC TouchHandler, logging one before/after snapshot for UP/CANCEL with the
+   same `gesture#N`;
+2. the OEM height clamp and the exact synthetic Runnable that directly writes
+   both expansion fields;
+3. one high-priority `ZERO-CROSSING` per gesture only when actual height moves
+   from above 100 px to at most 1 px, including effective requested height,
+   the setter's original requested height, fraction/tracking/ownership state,
+   current event context, the three interactive values, and filtered real
+   SystemUI callers; and
+4. one-per-gesture `endMotionEvent`, `isFalseTouch`, `fling$2`, and
+   `flingToHeight` summaries explicitly labeled `downstream-cleanup` when the
+   first zero transition has already happened.
+
+At the outer before/after, Injector before/after, TouchHandler UP entry, and
+actual writer transition, current values of `controlCenterInteractive`,
+`notificationInteractive`, and `entirePanelTouchable` are read through
+`getValue()` only. The module starts no collector or coroutine and writes no
+flow or OEM state.
+
+The sole behavior hook remains the exact fragment class-name replacement. No
+v0.0.7 diagnostic modifies height, fraction, MotionEvent, ownership, tracking,
+arguments, original results, original exceptions, collapse, or fling.
+
 ## Required diagnostics
 
 The module must emit `HyperOSP:`-prefixed diagnostics for:
@@ -397,36 +503,43 @@ The module must emit `HyperOSP:`-prefixed diagnostics for:
   path and showed that explicit ShadeController collapse calls do not account
   for every hide.
 - v0.0.5 runtime verified full expansion and both zero-height collapse routes.
+- v0.0.6 runtime verified that expansion can be above 2000 on the final MOVE
+  yet already zero at NPVC ACTION_UP entry, before end-motion/fling; false-touch
+  is not required.
 - v0.0.6 target-APK analysis verified the merged Runnable roles, separate
   scheduling paths, static R8 end-motion accessor, inlined decision inputs,
   concrete fling descriptors, and direct interactive-manager field graph.
-- v0.0.6 local comprehensive build/package verification passed and is recorded
-  in `docs/PROGRESS.md`.
+- v0.0.7 target-APK analysis verified both external-touch descriptors, their
+  UP/CANCEL ownership control flow, the OEM height clamp, synchronous batch
+  application, and the exact synthetic field writer.
+- v0.0.7 local comprehensive build/package verification is recorded in
+  `docs/PROGRESS.md`.
 
 No installation, LSPosed activation, scope change, SystemUI restart, or device
 command was performed during local implementation.
 
-## v0.0.6 causality validation (human-gated)
+## v0.0.7 zero-reset validation (human-gated)
 
 1. Before enabling HyperOSP, confirm that LSPosed Manager is reachable and
    that the framework's normal safe-mode/rescue route is available.
-2. Temporarily remove `com.android.systemui` scope from RestoreSplashScreen,
-   HyperCeiler, and every other module so HyperOSP is the only SystemUI hook
-   module for this baseline.
+2. Keep HyperCeiler enabled only as needed for
+   `system_control_center_unlock_old`; disable its other SystemUI tweaks. Keep
+   RestoreSplashScreen and every other SystemUI-scoped module disabled.
 3. Install `app/build/outputs/apk/debug/app-debug.apk`.
-4. Enable only HyperOSP and verify its scope contains only
-   `com.android.systemui`.
+4. Enable HyperOSP and verify its scope contains only `com.android.systemui`;
+   apart from the narrowly configured HyperCeiler prerequisite above, no other
+   SystemUI hook module should remain active.
 5. Capture/export LSPosed logs, then perform one controlled SystemUI restart or
    device reboot using the tester's established procedure.
 6. Before pulling down, confirm the `HyperOSP:` sequence reports
    module load, the SystemUI process/package, both fragments found, hook target
    found, replacement hook installed, and diagnostic-hook install outcomes.
-7. Make one slow, controlled desktop pull-down attempt in
-   `use_control_panel=0`, then stop and preserve the complete `HyperOSP:`
-   sequence. Group every line by `gesture#N`. The key evidence is the
-   end-motion inputs, original `isFalseTouch` result, actual `fling$2` expand
-   boolean, zero/nonzero target, three interactive-flow values, any
-   `onEmptySpaceClick` schedule check, and the merged Runnable class id.
+7. Make one slow, controlled pull-down attempt in classic mode, then stop and
+   preserve the complete `HyperOSP:` sequence. Group every line by
+   `gesture#N`. The key evidence is the outer/Injector/TouchHandler UP ordering,
+   the first `ZERO-CROSSING`, its effective value and caller stack, clamp
+   visibility/keyguard state, and the three interactive values at each point.
+   Treat any later zero-target fling as downstream cleanup.
 8. Do not broaden scope, enable Compose QS, or add a compensating behavior in
    this run. Treat a missing diagnostic target as evidence of OEM drift, not as
    permission to guess a replacement.
