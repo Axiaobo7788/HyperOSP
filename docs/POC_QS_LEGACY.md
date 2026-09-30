@@ -307,7 +307,9 @@ The class-id-1 collapse role is instead created inside
 unless fold notifications are currently displayed, the method posts the
 temporary instance to the panel view without delay. Its call to
 `collapse(1.0f,false)` synchronously selects `expand=false` and target height
-zero. Neither Runnable role statically references the selected QS fragment,
+zero. Neither verified scheduler contains a cancellation/removal path for its
+class-id-0 or class-id-1 Runnable; nearby `removeCallbacks` calls target other
+named Runnables. Neither role statically references the selected QS fragment,
 control-center setting, or `PanelInteractiveManager` flows.
 
 The ordinary fling decision is also OEM/R8-shaped. The target contains no

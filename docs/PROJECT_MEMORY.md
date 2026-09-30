@@ -160,6 +160,9 @@ It must not be committed or packaged.
   to `NotificationPanelView` without a delay. Its `run()` calls
   `collapse(1.0f,false)`, which leads through `fling$2(... expand=false)` to
   `flingToHeight(... targetHeight=0)`.
+- No `removeCallbacks` or cancellation branch targets the retained class-id-0
+  field or the transient class-id-1 instance in their verified scheduling
+  paths. Nearby removals in the owner classes target other named Runnables.
 - Neither the class-id-0 CPU boost route nor the class-id-1 empty-space collapse
   route contains a DEX dependency on `MiuiQSFragment`, `MiuiQS`,
   `useControlCenter`, or any of the three `PanelInteractiveManager` flows.
