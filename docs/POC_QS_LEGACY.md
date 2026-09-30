@@ -265,6 +265,110 @@ and every fiftieth call.
 No v0.0.5 hook forces expansion, changes `flingExpands`, suppresses collapse,
 writes panel state, invokes a property lambda, or selects Compose QS.
 
+## Verified runtime: v0.0.5 diagnostics
+
+The next device run resolved the broad v0.0.5 questions:
+
+- the rewrite and final `QSFragmentLegacy` binding still succeeded;
+- actual shade height reached roughly 2400 and expanded fraction reached 1.0,
+  proving the legacy backend can reach full expansion on this host;
+- the ordinary NPVC end-motion route selected `expand=false` and reached
+  `flingToHeight(... targetHeight=0)`; and
+- a collapse attributed to the R8 class
+  `NotificationPanelViewControllerInjector$boostRunnable$1` also reached the
+  zero-height route.
+
+The remaining task is causal, not structural: explain the inputs that produce
+the ordinary false decision, and determine whether the asynchronous Runnable
+collapse belongs to the same gesture.
+
+## v0.0.6 target-DEX causality analysis
+
+Static analysis of the exact ignored local `MiuiSystemUI.apk` established that
+the suspicious class name is an R8 merge artifact:
+
+```text
+NotificationPanelViewControllerInjector$boostRunnable$1.run()
+  classId=0 -> BoostHelper.boostWithCpuFreq(2000 ms, panelView)
+  classId=1 -> NotificationPanelViewController.collapse(1.0f, false)
+  classId=2 -> dismissViewController.updateShow()
+  default   -> top-padding update
+```
+
+The Injector's field named `boostRunnable` is constructed with class id 0. Its
+only verified scheduler is
+`NotificationPanelViewControllerInjector$2#onAppearanceChanged(boolean,
+boolean)`: on an animated transition to not-appeared, it uses
+`bgHandler.post()` with no delay if the Runnable is not already queued. That
+path is performance work and does not collapse the panel.
+
+The class-id-1 collapse role is instead created inside
+`NotificationPanelViewController#onEmptySpaceClick()`. For bar state 0/SHADE,
+unless fold notifications are currently displayed, the method posts the
+temporary instance to the panel view without delay. Its call to
+`collapse(1.0f,false)` synchronously selects `expand=false` and target height
+zero. Neither Runnable role statically references the selected QS fragment,
+control-center setting, or `PanelInteractiveManager` flows.
+
+The ordinary fling decision is also OEM/R8-shaped. The target contains no
+standalone hookable `flingExpands` method; the boolean is inlined in:
+
+```text
+NotificationPanelViewController
+  -$$Nest$mendMotionEvent(
+      NotificationPanelViewController,
+      MotionEvent,
+      float,
+      float,
+      boolean
+  ): void
+```
+
+The DEX decision uses unlocking/falsing, minimum velocity, direction, expanded
+fraction thresholds (0.5 normally / 0.8 on keyguard), the allowed-small-
+expansion flag within 300 ms, an active QS expansion animator, and heads-up
+collapse-snooze state. It passes the final boolean to
+`fling$2(float,float,boolean,boolean)`, which selects max distance or zero and
+then calls `flingToHeight(float,boolean,float,float,boolean)`.
+
+The same end-motion body can call `onEmptySpaceClick()` on its tap/no-motion
+branch. That is a plausible connection to the class-id-1 post but remains a
+runtime hypothesis until gesture-id logs correlate it.
+
+## v0.0.6 observation-only causality diagnostics
+
+v0.0.6 resolves the exact live descriptors above and installs independent,
+fail-safe observations for:
+
+1. `TouchHandler#onTouchEvent(MotionEvent)`, assigning a new `gesture#N` on
+   `ACTION_DOWN` and retaining it through sampled MOVE, UP/CANCEL, fling, and
+   asynchronous diagnostics;
+2. the static end-motion accessor and `isFalseTouch(float,float,int)`, including
+   full safe-to-read decision state and the original false-touch result;
+3. `fling$2(float,float,boolean,boolean)` and the five-argument
+   `flingToHeight`, including the actual expand boolean, target, velocity, and
+   collapse origin;
+4. exact collapse overloads, `onEmptySpaceClick()`, and the merged Runnable's
+   `run()`, distinguishing class id 0 CPU boost from class id 1 empty-space
+   collapse;
+5. `Injector$2#onAppearanceChanged(boolean,boolean)`, including the CPU-boost
+   post condition and queue state; and
+6. direct, read-only values from
+   `NPVC.mNotifInjector.panelInteractiveManager` for
+   `controlCenterInteractive`, `notificationInteractive`, and
+   `entirePanelTouchable`.
+
+Collapse observations carry exactly one of `GESTURE_DECISION`,
+`XIAOMI_BOOST_RUNNABLE`, or `OTHER`. The requested
+`XIAOMI_BOOST_RUNNABLE` label is retained for runtime-log compatibility, but it
+means the R8 class-id-1 category—not the actual class-id-0 field named
+`boostRunnable`.
+
+MOVE/height events are sampled. StateFlow values are read only with
+`getValue()`; no collector is started. Every interceptor proceeds once with the
+original arguments and result, does not alter exceptions, and cannot force
+expansion, suppress collapse, skip a Runnable, or mutate OEM state.
+
 ## Required diagnostics
 
 The module must emit `HyperOSP:`-prefixed diagnostics for:
@@ -290,16 +394,17 @@ The module must emit `HyperOSP:`-prefixed diagnostics for:
 - v0.0.4 runtime rejected the NotificationPanelExpandController visibility
   path and showed that explicit ShadeController collapse calls do not account
   for every hide.
-- v0.0.5 clean debug, lint, and release/R8 builds pass locally. APK inspection
-  confirms API 101 metadata, SystemUI-only scope, the debug and R8-rewritten
-  module entries, new observation markers, and removal of the rejected
-  panel-visible diagnostic markers.
-- v0.0.5 device behavior is unverified until the next human-gated debug run.
+- v0.0.5 runtime verified full expansion and both zero-height collapse routes.
+- v0.0.6 target-APK analysis verified the merged Runnable roles, separate
+  scheduling paths, static R8 end-motion accessor, inlined decision inputs,
+  concrete fling descriptors, and direct interactive-manager field graph.
+- v0.0.6 local comprehensive build/package verification passed and is recorded
+  in `docs/PROGRESS.md`.
 
 No installation, LSPosed activation, scope change, SystemUI restart, or device
 command was performed during local implementation.
 
-## v0.0.5 diagnostic validation (human-gated)
+## v0.0.6 causality validation (human-gated)
 
 1. Before enabling HyperOSP, confirm that LSPosed Manager is reachable and
    that the framework's normal safe-mode/rescue route is available.
@@ -314,11 +419,12 @@ command was performed during local implementation.
 6. Before pulling down, confirm the `HyperOSP:` sequence reports
    module load, the SystemUI process/package, both fragments found, hook target
    found, replacement hook installed, and diagnostic-hook install outcomes.
-7. Make one controlled pull-down attempt in `use_control_panel=0`, then stop and
-   preserve the complete `HyperOSP:` sequence. The key evidence is the live
-   NPVC method inventory, actual height growth, `endMotionEvent` arguments and
-   state, the original `flingExpands` result, `flingToHeight` target, filtered
-   SystemUI callers, and `PanelInteractiveManager` classifications/values.
+7. Make one slow, controlled desktop pull-down attempt in
+   `use_control_panel=0`, then stop and preserve the complete `HyperOSP:`
+   sequence. Group every line by `gesture#N`. The key evidence is the
+   end-motion inputs, original `isFalseTouch` result, actual `fling$2` expand
+   boolean, zero/nonzero target, three interactive-flow values, any
+   `onEmptySpaceClick` schedule check, and the merged Runnable class id.
 8. Do not broaden scope, enable Compose QS, or add a compensating behavior in
    this run. Treat a missing diagnostic target as evidence of OEM drift, not as
    permission to guess a replacement.

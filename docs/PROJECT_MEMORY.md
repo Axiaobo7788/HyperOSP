@@ -99,6 +99,24 @@ tool failures belong in `PROGRESS.md` instead.
   `notification_panel_revealed`, `NotificationShade reportDrawFinished`, then
   roughly 150-500 ms later `notification_panel_hidden`.
 
+## Verified runtime: v0.0.5 causality run
+
+- The class rewrite still succeeded, and `QSFragmentLegacy` remained the
+  controller's bound QS instance.
+- During a failed interaction, the shade's actual expanded height reached
+  roughly 2400 and its expanded fraction reached 1.0. This rejects the claim
+  that HyperOS cannot host or fully expand this legacy backend.
+- The live OEM end-motion path proceeded through an NPVC fling decision with
+  `expand=false`, followed by `flingToHeight(... targetHeight=0)`.
+- A call attributed at runtime to the R8 class
+  `NotificationPanelViewControllerInjector$boostRunnable$1` also reached
+  `NotificationPanelViewController.collapse()` and then the same zero-height
+  fling route. Static DEX analysis below distinguishes the merged class's
+  semantic roles; the class name alone is not a causal identity.
+- `PanelInteractiveManager` exposed all three expected `ReadonlyStateFlow`
+  instances: `controlCenterInteractive`, `notificationInteractive`, and
+  `entirePanelTouchable`.
+
 ## Rejected hypothesis and current hypothesis
 
 - **Rejected by verified runtime:** `QSFragmentLegacy` failed to complete the
@@ -108,41 +126,69 @@ tool failures belong in `PROGRESS.md` instead.
   `NotificationPanelExpandController#setPanelVisible`,
   `startPanelVisibleAnimation`, or a `panelVisible` field owns the observed
   close on this build.
-- **Current highest-priority hypothesis:** Legacy QS is instantiated and bound;
-  the failed pull-down more likely rebounds from
-  `NotificationPanelViewController` gesture-end/fling judgment than from
-  Quick Settings wiring or an explicit `ShadeController` collapse.
-- **当前核心假设：**“Legacy QS 已实例化和绑定；failed pull-down 更像
-  NotificationPanelViewController 手势结束/fling 判定回弹，而非
-  QuickSettings wiring 或显式 ShadeController collapse。”
+- **Rejected by verified runtime:** Legacy QS cannot reach full shade
+  expansion. The observed height/fraction reached approximately 2400 / 1.0.
+- **Current highest-priority question:** which inlined end-motion input causes
+  the ordinary NPVC decision to select `expand=false`, and does the separate
+  Xiaomi class-id-1 posted collapse run in the same failed gesture?
+- **当前核心研究状态：**“QSFragmentLegacy backend 已成功实例化、绑定并达到
+  full shade expansion。M1 当前 blocker 已缩小到
+  NotificationPanelViewController 的 gesture/fling collapse decision，以及
+  Xiaomi NotificationPanelViewControllerInjector boostRunnable 合并类中的独立
+  collapse 路径。”
 
-## Verified APK/source symbols and unresolved ownership
+## Verified target APK DEX: v0.0.6 causality analysis
 
-- The inspected MiuiSystemUI DEX contains
-  `NotificationPanelViewController` symbols `endMotionEvent`, `flingExpands`,
-  `flingToHeight`, `setExpandedHeight`, and `setExpandedHeightInternal`, plus
-  the strings `NPVC flingExpands called with vel:` and
-  `endMotionEvent: flingExpands`.
-- The same APK inspection found
-  `com.miui.systemui.shade.PanelInteractiveManager`, generated class-name
-  symbols for `controlCenterInteractive$1`, `notificationInteractive$1`, and
-  `entirePanelTouchable$1`, and the strings
-  `controlCenterInteractive, not excepted notification panel expand.` and
-  `not excepted notification panel expand.`
-- The original uploaded APK is not present in the current local workspace, and
-  public-source search does not expose Xiaomi's proprietary implementation.
-  The precise method owning those two strings and its branch predicate are
-  therefore **not yet verified**; do not infer ownership from the strings
-  alone.
-- Android 16 AOSP source shows the corresponding flow as
-  `endMotionEvent(MotionEvent,float,float,boolean)` calling
-  `flingExpands(float,float,float,float)`, then selecting a target through
-  `flingToHeight(float,boolean,float,float,boolean)`. This is a source
-  reference, not proof of Xiaomi's runtime descriptor.
-- v0.0.5 enumerates the live OEM methods and only labels argument index 2 as
-  `targetHeight` when the complete five-parameter descriptor exactly matches
-  that AOSP source shape. A different runtime shape remains logged but
-  unresolved rather than guessed.
+The locally supplied `MiuiSystemUI.apk` is an ignored, untracked analysis input.
+Its SHA-256 is
+`e1ef38a00753d5dbcd864ddf4c2d6a2fbb0e9aee2a0c438c0cc32e3153b2d3c7`.
+It must not be committed or packaged.
+
+- `NotificationPanelViewControllerInjector$boostRunnable$1` is an R8-merged
+  `Runnable` with `$r8$classId` and `this$0` fields. Its `run()` roles are:
+  class id 0 calls `BoostHelper.boostWithCpuFreq(2000L, panelView)`; class id 1
+  calls `NotificationPanelViewController.collapse(1.0f, false)`; class id 2
+  updates the dismiss view; the default role recomputes top padding.
+- The Injector constructor creates and retains its field named `boostRunnable`
+  with class id 0. `NotificationPanelViewControllerInjector$2#onAppearanceChanged`
+  posts that CPU-boost Runnable with no delay only when appearance changed to
+  false, animation is requested, and `bgHandler.hasCallbacks(boostRunnable)` is
+  false. It never calls collapse.
+- The class-id-1 collapse instance is created only in
+  `NotificationPanelViewController#onEmptySpaceClick()`. In bar state 0/SHADE,
+  when fold notifications are not being shown, it posts the temporary Runnable
+  to `NotificationPanelView` without a delay. Its `run()` calls
+  `collapse(1.0f,false)`, which leads through `fling$2(... expand=false)` to
+  `flingToHeight(... targetHeight=0)`.
+- Neither the class-id-0 CPU boost route nor the class-id-1 empty-space collapse
+  route contains a DEX dependency on `MiuiQSFragment`, `MiuiQS`,
+  `useControlCenter`, or any of the three `PanelInteractiveManager` flows.
+- HyperOS inlines the ordinary `flingExpands` decision into the static R8
+  accessor
+  `-$$Nest$mendMotionEvent(NotificationPanelViewController, MotionEvent, float,
+  float, boolean):void`; there is no independently hookable runtime
+  `flingExpands` method in the inspected class.
+- The inlined decision checks unlocking/falsing, velocity versus
+  `mMinVelocityPxPerSecond`, expanded fraction (0.5 outside keyguard, 0.8 on
+  keyguard), the short-expansion allowance within 300 ms, velocity direction,
+  an active QS expansion animator, and finally heads-up `mCollapseSnoozes`.
+  It passes the resulting boolean to
+  `fling$2(float,float,boolean,boolean):void`, which selects max panel distance
+  for expansion or zero for collapse, then calls the five-argument
+  `flingToHeight`.
+- The same end-motion accessor has a tap/no-motion branch that calls
+  `onEmptySpaceClick()`. This is a plausible bridge between a gesture session
+  and the class-id-1 posted collapse, but runtime correlation is still pending.
+- `NotificationPanelViewController$TouchHandler#onTouchEvent(MotionEvent)` is
+  the concrete touch entry. It directly reaches
+  `mNotifInjector.panelInteractiveManager`; if
+  `controlCenterInteractive` is true under its other arbitration conditions,
+  it logs that notification-panel expansion is not expected and returns false.
+- `PanelInteractiveManager` stores `controlCenterInteractive`,
+  `notificationInteractive`, and `entirePanelTouchable` as direct
+  `ReadonlyStateFlow` fields. The instance path is
+  `NPVC.mNotifInjector -> injector.panelInteractiveManager`; no Dagger/Lazy
+  lookup, collection, or lambda invocation is required to read current values.
 
 ## Verified source: QS hand-off path
 
@@ -158,23 +204,23 @@ tool failures belong in `PROGRESS.md` instead.
 
 ## Active hypotheses
 
-- `NotificationPanelViewController#endMotionEvent` may receive a cancel or use
-  `flingExpands` to choose collapse; the resulting `flingToHeight` target may
-  be `0` even though expanded height rose during the drag.
-- Xiaomi's `PanelInteractiveManager` may expose
-  `controlCenterInteractive`, `notificationInteractive`, or
-  `entirePanelTouchable` as a field, StateFlow/property getter, or generated
-  lambda result involved in that judgment. Its exact representation and value
-  are pending runtime inventory.
-- Sparse `ShadeControllerImpl` calls remain useful correlation evidence, but
-  are no longer the primary root-cause hypothesis.
+- One of the DEX-verified inlined decision inputs may explain the ordinary
+  `expand=false`: velocity magnitude/direction, fraction threshold, false-touch
+  result, 300 ms small-expansion allowance, keyguard, QS animator, or heads-up
+  collapse-snooze state. The v0.0.6 runtime log must identify the actual values.
+- The class-id-1 empty-space collapse may be scheduled from the tap/no-motion
+  end-motion branch during the same failed pull-down. Gesture-id and scheduling
+  correlation are required before treating it as the root cause.
+- The direct `PanelInteractiveManager` values may explain an earlier touch
+  rejection, but no static evidence connects them to either collapse Runnable;
+  their runtime correlation remains observational.
 
 ## Repository and toolchain facts
 
 - The local repository was cloned from JingMatrix/libxposed-example at commit
   `87e9cb8` and retains that history as provenance.
 - The inherited template selected compileSdk/targetSdk 36, JDK 21, and Kotlin.
-- HyperOSP v0.0.5 continues to compile against the formal Maven Central dependency
+- HyperOSP v0.0.6 continues to compile against the formal Maven Central dependency
   `io.github.libxposed:api:101.0.0` as `compileOnly`; the API is supplied by the
   framework at runtime and is not packaged in the APK.
 - API 101 entry classes have a no-argument `XposedModule()` constructor. The
@@ -191,20 +237,24 @@ tool failures belong in `PROGRESS.md` instead.
   `io.github.axiaobo7788.hyperosp`.
 - M1's only static scope is `com.android.systemui`.
 
-## v0.0.5 diagnostic safety contract
+## v0.0.6 diagnostic safety contract
 
-- Height observation is rate-limited and records the reflected actual expanded
-  height before/after the original setter. A module-owned gesture tracker only
-  reports whether that actual value grew from zero; it never writes the OEM
-  field.
-- `endMotionEvent` arguments, readable expanded-height/fraction fields,
-  `flingExpands` inputs/original boolean result, and `flingToHeight` arguments
-  are observed without modification.
+- Each `ACTION_DOWN` starts a module-owned `gesture#N`. MOVE and expanded-height
+  logs are sampled by time/height thresholds; no MotionEvent or OEM field is
+  changed.
+- The static end-motion accessor, `isFalseTouch`, `fling$2`, `flingToHeight`,
+  collapse overloads, and the two R8 Runnable roles are observed without
+  modifying arguments, return values, exceptions, scheduling, or panel state.
 - Caller collection scans the full Java stack, filters Thread/VMStack,
   libxposed/LSPosed, reflection, and HyperOSP frames, and prefers the first real
   `com.android.systemui` / `com.miui.systemui` frames.
-- A StateFlow value may be read through its side-effect-free `getValue()`;
-  generated `Function0`/lambda objects are classified but never invoked.
+- The three interactive StateFlows are reached through the direct field graph
+  and read only through side-effect-free `getValue()`; they are never collected
+  or mutated.
+- Collapse logs use exactly `GESTURE_DECISION`, `XIAOMI_BOOST_RUNNABLE`, or
+  `OTHER`. The historical label `XIAOMI_BOOST_RUNNABLE` denotes the requested
+  class-id-1 diagnostic category; static analysis establishes that the actual
+  Injector field called `boostRunnable` is class id 0 and is not a collapse.
 
 ## Safety and validation boundary
 

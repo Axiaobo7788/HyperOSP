@@ -4,27 +4,26 @@ Last updated: 2026-09-30
 
 ## Current checkpoint
 
-HyperOSP v0.0.5 is compiled and statically verified as an observation-only M1
-diagnostic build. It retains the device-verified class-name rewrite and OEM
-one-argument listener handling, but replaces the rejected
-`NotificationPanelExpandController` visibility investigation with reflected
-`NotificationPanelViewController` height, `endMotionEvent`, `flingExpands`, and
-`flingToHeight` observations. It also inventories
-`PanelInteractiveManager` fields/getters/StateFlow/lambda shapes without
-invoking an OEM lambda or writing any state.
+HyperOSP v0.0.6 is implemented as an observation-only M1 causality build. It
+retains the device-verified fragment rewrite and replaces the broad v0.0.5
+inventory with exact target-DEX paths: touch sessions, the static R8
+end-motion accessor, `isFalseTouch`, `fling$2`, `flingToHeight`, collapse
+overloads, direct `PanelInteractiveManager` StateFlow reads, and distinct R8
+Runnable roles. Every diagnostic invokes the original exactly once and does
+not modify arguments, results, exceptions, scheduling, or SystemUI state.
 
-The v0.0.3 API 101 device run verified `QSFragmentLegacy#onViewCreated`,
-`mQsImpl -> QSImpl`, every expected standard AOSP wiring call, final controller
-`mQs`, valid expansion bounds, and enabled policy/ambient state. The shade
-opened and drew, then was hidden shortly afterward. The v0.0.4 run then proved
-that the assumed panel-visible setter/field path does not exist on this build
-and that observed ShadeController collapse calls do not precede every hide.
-Consequently, incomplete legacy-QS wiring and that visibility-controller path
-are rejected. The current leading question is whether NPVC's gesture-end/fling
-decision explicitly targets height zero.
-The APK is ready for a human-gated diagnostic run; no APK installation,
-LSPosed change, device command, or SystemUI restart was performed while
-preparing it.
+The v0.0.5 device run proved that the legacy backend reaches full shade
+expansion (about 2400 px / fraction 1.0) before NPVC selects `expand=false` and
+targets height zero. It also observed a collapse attributed to Xiaomi's
+`boostRunnable$1` class. Static DEX analysis now shows that this is an R8 merged
+class: the held `boostRunnable` field is class id 0 and only performs a CPU
+boost; the class-id-1 collapse role is allocated in `onEmptySpaceClick()` and
+posted without delay. v0.0.6 correlates those independent paths with
+`gesture#N` identifiers.
+
+The comprehensive build, lint, R8, metadata, entry, DEX-marker, exclusion, and
+hash checks all pass locally. No APK installation, LSPosed change, device
+command, or SystemUI restart was performed while preparing this diagnostic.
 
 The working tree began as an unmodified JingMatrix/libxposed-example clone at
 `87e9cb8`. The first implementation pass was completed while the HyperOSP
@@ -38,29 +37,72 @@ history rewrite was used.
 | Milestone | State | Evidence / remaining work |
 | --- | --- | --- |
 | Safe repository bootstrap | Complete | Template history preserved; `origin` is HyperOSP, `upstream` is JingMatrix, work is on `feat/aosp-qs-legacy-poc` |
-| Minimal HyperOSP module | Complete | v0.0.5/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope retained |
+| Minimal HyperOSP module | Complete | v0.0.6/package identity, API 101 metadata, formal compile-only API dependency and SystemUI-only scope retained |
 | API 101 migration | Complete | No-argument module entry, `onModuleLoaded`, `Hooker#intercept(Chain)`, protective HookBuilder and copied-argument proceed path implemented |
 | M1 legacy QS hook | Runtime partially verified | Exact rewrite and full standard legacy-QS lifecycle/wiring succeeded; shade opens/draws but is actively hidden shortly afterward |
 | v0.0.3 QS wiring diagnostics | Runtime complete | Delegate, wiring, final mQs, expansion bounds, and enabled-state evidence captured; missing-wiring hypothesis rejected |
 | v0.0.4 collapse diagnostics | Runtime complete | Assumed NotificationPanelExpandController setter/field path rejected; ShadeController calls are not a complete cause; old caller filtering failed |
 | v0.0.5 NPVC gesture diagnostics | Implementation complete | Runtime method inventory, actual height growth, end-motion state, original fling result, target height, filtered SystemUI callers, and PanelInteractiveManager inventory are observation-only |
-| Local debug build | Complete | Clean debug build passes on JDK 21; metadata, scope, entry, version, DEX references, and SHA-256 verified |
-| Lint and release/R8 packaging | Complete | `lintDebug` reports no issues; minified release builds and its rewritten `t0` entry is valid |
+| v0.0.5 causality run | Runtime complete | Full expansion reached; ordinary end-motion selected `expand=false` / target 0; an R8 merged class-id-1 collapse path also ran |
+| v0.0.6 DEX causality analysis | Complete | CPU-boost field role and temporary empty-space collapse role separated; exact scheduler conditions and inlined fling decision recovered |
+| v0.0.6 causality diagnostics | Implementation complete | Gesture ids, exact decision inputs, direct StateFlow reads, schedule checks, Runnable class ids, collapse origins, and filtered callers are observation-only |
+| Local debug build | Complete | Clean debug build passes on JDK 21; metadata, scope, entry, version, DEX references, exclusions, and SHA-256 verified |
+| Lint and release/R8 packaging | Complete | `lintDebug` reports no issues; minified release builds and rewritten `u0` entry is valid |
 | API 100 compatibility | Rejected by runtime | API 101 manager automatically disabled v0.0.1 before module execution |
 | First API 101 device run | Completed with functional blocker | Rewrite succeeded and SystemUI lived; shade expansion stayed at `0.0` |
-| Clean v0.0.5 diagnostic run | Human-gated | Use the debug APK with HyperOSP as the only SystemUI hook module, then capture one controlled pull-down sequence |
+| Clean v0.0.6 causality run | Human-gated | After local verification, use the debug APK with HyperOSP as the only SystemUI hook module and capture one controlled pull-down sequence |
 
 ## Validation boundary
 
-Do not interpret v0.0.5 compilation as proof that the live OEM signatures will
-match Android 16 AOSP, that `flingExpands` returns false, that target height is
-zero, or that a `PanelInteractiveManager` value participates in the decision.
-Those are the next device-log questions. Compilation and DEX inspection only
-prove that the fail-safe observation machinery and packaging are present.
+Do not interpret v0.0.6 compilation or target-APK DEX analysis as proof of the
+next live gesture's exact inputs. Runtime must still correlate the ordinary
+gesture decision and the class-id-1 posted collapse by gesture id. It must also
+show whether any interactive StateFlow is true at the relevant decision.
 
-当前核心假设：“Legacy QS 已实例化和绑定；failed pull-down 更像
-NotificationPanelViewController 手势结束/fling 判定回弹，而非
-QuickSettings wiring 或显式 ShadeController collapse。”
+当前核心研究状态：“QSFragmentLegacy backend 已成功实例化、绑定并达到 full
+shade expansion。M1 当前 blocker 已缩小到 NotificationPanelViewController 的
+gesture/fling collapse decision，以及 Xiaomi
+NotificationPanelViewControllerInjector boostRunnable 合并类中的独立 collapse
+路径。”
+
+## v0.0.6 local build evidence
+
+- Fast source check: `./gradlew :app:compileDebugKotlin` — `BUILD SUCCESSFUL`.
+- Required comprehensive command:
+  `./gradlew clean :app:lintDebug :app:assembleDebug :app:assembleRelease`
+- Result: `BUILD SUCCESSFUL` in 1m 25s (89 actionable tasks; 86 executed,
+  3 up-to-date); lint text report says `No issues found.`
+- Package: `io.github.axiaobo7788.hyperosp`
+- Version: `0.0.6` (`versionCode=6`)
+- compileSdk/targetSdk: 36 / 36; JDK toolchain: 21
+- Both APKs contain `minApiVersion=101`, `targetApiVersion=101`,
+  `staticScope=true`, and exactly one scope line: `com.android.systemui`.
+- Debug `java_init.list` names
+  `io.github.axiaobo7788.hyperosp.HyperOSPModule`. R8 rewrites the release entry
+  to `u0`; DEX inspection confirms `u0` is public, extends `XposedModule`, has a
+  public no-argument constructor, and retains public `onModuleLoaded` and
+  `onPackageLoaded` callbacks.
+- Debug DEX contains all ten v0.0.6 diagnostic Hooker implementations and the
+  gesture, end-motion, false-touch, fling, target-height, schedule-check,
+  interactive-flow, merged-Runnable-role, collapse-origin, and caller markers.
+  Release DEX retains the same diagnostic markers after R8.
+- The diagnostic source has a single unchanged
+  `proceedUnchanged -> Chain.proceed()` call. The separate behavioral fragment
+  rewrite remains the only copied-argument `proceed(modifiedArguments)` path.
+- Neither APK defines/packages libxposed, an API 100 stub, a legacy annotation
+  callback, a native library, the removed `ShadeGestureDiagnostics`, or the
+  local `MiuiSystemUI.apk`. The target APK is covered by root `.gitignore` and
+  is not tracked.
+- Debug APK:
+  `app/build/outputs/apk/debug/app-debug.apk`
+- Debug SHA-256:
+  `1332bcee9eba3676e853585209fe4d70f2966ccd96eb1d85ccda90e60984154e`
+- Release APK:
+  `app/build/outputs/apk/release/app-release.apk`
+- Release SHA-256:
+  `602c11ff5e1d01c841857d11819841a99fa1e7f97f9225979992d036f15f560b`
+- Release remains debug-signed for packaging/R8 verification and is not a
+  production release artifact.
 
 ## v0.0.5 local build evidence
 

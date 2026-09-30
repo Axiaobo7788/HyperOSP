@@ -3,27 +3,28 @@
 HyperOSP is an experimental LSPosed module for narrowly scoped, fail-safe
 HyperOS SystemUI compatibility experiments.
 
-**Current status:** the v0.0.3 API 101 device run proved that the exact
-`MiuiQSFragment -> QSFragmentLegacy` replacement, `QSFragmentLegacy`
-lifecycle, `QSImpl` delegate creation, normal AOSP wiring, controller `mQs`
-binding, expansion bounds, and expansion-enabled policy state all complete.
-The v0.0.4 device run further proved that the assumed
-`NotificationPanelExpandController#setPanelVisible` /
-`startPanelVisibleAnimation` / `panelVisible` path does not exist on this OEM
-build. `ShadeControllerImpl` collapse methods do run, but not before every
-observed hide, so that path cannot explain the blocker by itself.
+**Current status:** API 101 runtime tests have proved the exact
+`MiuiQSFragment -> QSFragmentLegacy` replacement, `QSImpl` creation, standard
+AOSP wiring, final controller `mQs` binding, and a real full-shade expansion
+of roughly 2400 px / fraction 1.0. The legacy backend can therefore be hosted
+by this HyperOS build. The remaining M1 blocker is collapse causality:
+`NotificationPanelViewController` reaches an `expand=false`, target-height-zero
+fling after gesture end, and Xiaomi also has an asynchronous collapse route in
+an R8-merged Runnable class.
 
-v0.0.5 retains the fragment rewrite unchanged and moves observation to
-`NotificationPanelViewController`: actual expanded-height transitions,
-`endMotionEvent`, the original `flingExpands` result, and the reflected
-`flingToHeight` target. It also inventories Xiaomi's
-`PanelInteractiveManager` properties as fields, StateFlow values, getters, or
-generated lambdas without invoking lambdas or changing state. Sparse
-`ShadeController` logging remains supporting evidence only. Clean debug,
-lint, and release/R8 builds pass locally. The next step is a human-gated
-debug-APK run with HyperOSP as the only SystemUI hook module.
+v0.0.6 keeps the sole behavioral fragment rewrite unchanged and adds only
+observation. Each touch receives a `gesture#N` correlation id; sampled height,
+the actual inlined end-motion inputs, false-touch result, `fling$2` decision,
+`flingToHeight` target, collapse origin, and the three
+`PanelInteractiveManager` StateFlow values are recorded without modification.
+Static DEX analysis also corrects an important naming trap: the Injector field
+named `boostRunnable` is `classId=0` and only performs a 2000 ms CPU boost. The
+collapse role is a temporary `classId=1` instance created by
+`onEmptySpaceClick()` and posted without delay to the panel view. The next step
+is a human-gated controlled gesture run using the unminified debug APK with
+HyperOSP as the only SystemUI hook module.
 
-The v0.0.5 diagnostic milestone is a minimal proof of concept for Xiaomi 15 Pro
+The v0.0.6 diagnostic milestone is a minimal proof of concept for Xiaomi 15 Pro
 (`haotian`) on HyperOS 3 / Android 16. It attempts one transformation only:
 when SystemUI asks its fragment injection manager to instantiate the exact
 class name `com.android.systemui.qs.MiuiQSFragment`, substitute
@@ -57,23 +58,24 @@ MiuiQSFragment class name is requested; every other call uses
 callback arguments, and hook errors all produce a `HyperOSP:` diagnostic and a
 no-op.
 
-The v0.0.5 diagnostic hooks do not replace results, arguments, or receivers.
-They accept the verified HyperOS one-argument
-`QsFragmentListener#onFragmentViewCreated(Fragment)` signature (while retaining
-the compatible AOSP two-argument form), observe the resulting `mQs` identity,
-and then reflect the real `NotificationPanelViewController` methods before
-installing read-only interceptors. Height logs are rate-limited; gesture-end
-and fling decisions include actual expansion state and filtered SystemUI caller
-frames. `flingExpands` results and `flingToHeight` arguments are returned and
-forwarded unchanged. The old frame-adjacent QS wiring traces and the rejected
-`NotificationPanelExpandController` visibility path are removed. Every
-original method is invoked exactly once; an original SystemUI exception is
-rethrown unchanged.
+The v0.0.6 diagnostics resolve exact OEM descriptors from the live class
+loader. On the inspected target DEX, the end-motion decision is inlined in the
+static R8 accessor
+`-$$Nest$mendMotionEvent(NotificationPanelViewController, MotionEvent, float,
+float, boolean)` rather than a separately hookable `flingExpands` method. The
+diagnostic observes that accessor, `isFalseTouch(float,float,int)`,
+`fling$2(float,float,boolean,boolean)`, the five-argument `flingToHeight`,
+collapse overloads, touch entry, height setters, `onEmptySpaceClick`, the
+merged Runnable's `run()`, and its separate CPU-boost scheduling callback.
+Every observation interceptor invokes the original exactly once with the
+original receiver and arguments, returns its unmodified result, and rethrows
+an original exception unchanged.
 
-A successful local build does not prove which gesture predicate returns false
-or whether the final target height is zero; that evidence requires the next
-human-gated runtime log. Installation, LSPosed activation, scope changes,
-SystemUI restart, and all other device operations remain human-gated.
+A successful local build proves only that this observation machinery and its
+packaging are coherent. It does not yet prove which input makes the ordinary
+fling collapse or whether the asynchronous empty-space collapse belongs to the
+same failed gesture. Installation, LSPosed activation, scope changes, SystemUI
+restart, and all other device operations remain human-gated.
 
 ## Build
 

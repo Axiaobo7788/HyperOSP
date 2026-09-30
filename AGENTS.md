@@ -5,7 +5,7 @@ These instructions apply to the entire repository.
 ## Project boundary
 
 - HyperOSP is an LSPosed module written in Kotlin with the modern libxposed API.
-- The v0.0.5/M1 diagnostic scope is only `com.android.systemui`.
+- The v0.0.6/M1 diagnostic scope is only `com.android.systemui`.
 - Do not add `miui.systemui.plugin`, a settings UI, Magisk, KernelSU, or other
   companion components during M1.
 - Do not install the APK, change LSPosed state or scope, run device-side
@@ -44,25 +44,30 @@ These instructions apply to the entire repository.
   file says otherwise.
 - Preserve the Apache-2.0 provenance and license text for material inherited
   from JingMatrix/libxposed-example; keep `THIRD_PARTY_NOTICES.md` accurate.
-- Do not report local compilation as successful device validation. The v0.0.3
-  API 101 run verified the class rewrite, legacy lifecycle/delegate, standard
-  wiring, final `mQs`, expansion bounds, and enabled policy state. The v0.0.4
-  run rejected the assumed `NotificationPanelExpandController` visibility
-  setter/field path and showed that explicit `ShadeControllerImpl` collapse
-  calls do not explain every hide. The next unknown is the live
-  `NotificationPanelViewController` gesture-end/fling decision.
+- Do not report local compilation as successful device validation. Runtime has
+  verified the rewrite, legacy lifecycle/delegate, standard wiring, final
+  `mQs`, and a full shade expansion near 2400 px / fraction 1.0. It has also
+  observed `NotificationPanelViewController` ending in `fling$2(expand=false)`
+  and `flingToHeight(... targetHeight=0)`. The remaining unknown is why that
+  decision is made and whether Xiaomi's separate asynchronous collapse route
+  is correlated with the same gesture.
 - Diagnostic interceptors must be observation-only: do not alter arguments,
   receivers, return values, or original exceptions. Rate-limit frame-adjacent
   logging and invoke each original method exactly once.
-- For v0.0.5, do not restore the noisy `updateExpansion`/`setQsExpansion`
-  traces and do not compensate for, suppress, or override a collapse or fling
-  result. Enumerate the live `NotificationPanelViewController` signatures
-  before observing `setExpandedHeight`, `setExpandedHeightInternal`,
-  `endMotionEvent`, `flingExpands`, or `flingToHeight`. Treat an unresolved
-  `flingToHeight` target index as diagnostic evidence, not permission to guess.
-- `PanelInteractiveManager` diagnostics may classify fields, property getters,
-  StateFlow values, and generated `Function0` classes. They must not invoke an
-  OEM lambda or mutate a flow/property.
+- For v0.0.6, do not restore noisy `updateExpansion`/`setQsExpansion` traces and
+  do not compensate for, suppress, or override collapse or fling. Use the
+  DEX-verified static R8 end-motion accessor, `isFalseTouch`, `fling$2`,
+  `flingToHeight`, and collapse descriptors only after confirming them against
+  the live ClassLoader. Correlate events with a gesture id and rate-limit MOVE
+  and height samples.
+- Read `PanelInteractiveManager` only through the verified direct field graph
+  `NPVC.mNotifInjector -> injector.panelInteractiveManager` and side-effect-free
+  StateFlow `getValue()`. Do not collect, mutate, or invoke an OEM lambda.
+- Treat `NotificationPanelViewControllerInjector$boostRunnable$1` as an
+  R8-merged multi-role class, not one semantic Runnable. The held
+  `boostRunnable` field is class id 0 (CPU boost); class id 1 is created by
+  `onEmptySpaceClick()` and performs the posted collapse. Log the roles
+  separately and do not suppress either.
 - For the next human-run diagnostic baseline, recommend temporarily excluding
   HyperCeiler, RestoreSplashScreen, and every other SystemUI-scoped module so
   HyperOSP is the only SystemUI hook module, and use the debug APK.
@@ -75,6 +80,9 @@ These instructions apply to the entire repository.
   history.
 - Keep changes small, reviewable, and on `feat/aosp-qs-legacy-poc` until M1 is
   handed off.
+- Keep the user-supplied root `MiuiSystemUI.apk` ignored and untracked; it is a
+  local reverse-engineering input and must never be committed or packaged.
+
 ## Expanded project operating contract
 
 This file is the persistent operating contract for Codex / coding agents working on HyperOSP.
