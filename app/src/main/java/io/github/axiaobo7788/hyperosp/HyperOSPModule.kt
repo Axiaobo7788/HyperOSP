@@ -94,7 +94,7 @@ class HyperOSPModule : XposedModule() {
         }
 
         try {
-            ShadeGestureDiagnostics(this).install(classLoader)
+            ShadeCausalityDiagnostics(this).install(classLoader)
         } catch (throwable: Throwable) {
             safeLog("HyperOSP: caught exception while installing shade diagnostics", throwable)
         }
